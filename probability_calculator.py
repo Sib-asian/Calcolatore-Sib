@@ -29,6 +29,13 @@ class AdvancedProbabilityCalculator:
         self.max_goals_dynamic = True  # Limite gol dinamico
         self.use_log_space = True  # Usa log-space per precisione
         
+        # Ottimizzazioni computazionali
+        self._cache_poisson = {}  # Cache per calcoli Poisson
+        self._cache_max_goals = {}  # Cache per max_goals
+        self._cache_factorial = {}  # Cache per factorial
+        self._cache_enabled = True  # Abilita caching
+        self._max_cache_size = 1000  # Dimensione massima cache
+        
         # Parametri avanzati per miglioramenti
         self.use_overdispersion_correction = True  # Correzione per overdispersion
         self.use_skewness_correction = True  # Correzione per skewness Poisson
@@ -250,6 +257,7 @@ class AdvancedProbabilityCalculator:
         
         Versione migliorata: usa formula più precisa basata su Chernoff bound
         e considera entrambe le lambda per maggiore precisione.
+        OTTIMIZZATO: aggiunto caching per evitare ricalcoli.
         
         Args:
             lambda_home: Attesa gol casa
@@ -258,6 +266,12 @@ class AdvancedProbabilityCalculator:
         Returns:
             Limite massimo gol da considerare
         """
+        # Cache lookup per ottimizzazione
+        if self._cache_enabled:
+            cache_key = (round(lambda_home, 2), round(lambda_away, 2))
+            if cache_key in self._cache_max_goals:
+                return self._cache_max_goals[cache_key]
+        
         max_lambda = max(lambda_home, lambda_away)
         total_lambda = lambda_home + lambda_away
         
@@ -505,6 +519,33 @@ class AdvancedProbabilityCalculator:
         
         return lambda_home, lambda_away
     
+    def _factorial_cached(self, n: int) -> float:
+        """
+        Calcola factorial con caching per ottimizzazione.
+        
+        Args:
+            n: Numero intero
+            
+        Returns:
+            n!
+        """
+        if not self._cache_enabled:
+            return math.factorial(n)
+        
+        if n in self._cache_factorial:
+            return self._cache_factorial[n]
+        
+        # Limita cache size
+        if len(self._cache_factorial) > self._max_cache_size:
+            # Rimuovi entry più vecchie (FIFO semplificato)
+            keys_to_remove = list(self._cache_factorial.keys())[:100]
+            for key in keys_to_remove:
+                del self._cache_factorial[key]
+        
+        result = math.factorial(n)
+        self._cache_factorial[n] = result
+        return result
+    
     def poisson_probability(self, k: int, lambda_param: float) -> float:
         """
         Calcola probabilità Poisson: P(X = k) = (lambda^k * e^(-lambda)) / k!
@@ -527,20 +568,31 @@ class AdvancedProbabilityCalculator:
         if k < 0:
             return 0.0
         
+        # Cache lookup per ottimizzazione
+        if self._cache_enabled:
+            cache_key = (k, round(lambda_param, 6))  # Arrotonda per cache
+            if cache_key in self._cache_poisson:
+                return self._cache_poisson[cache_key]
+        
         # Ottimizzazione per lambda molto piccole
         if lambda_param < 0.1:
             # Per lambda molto piccole, usa approssimazione più stabile
             if k == 0:
-                return math.exp(-lambda_param)
+                result = math.exp(-lambda_param)
             elif k == 1:
-                return lambda_param * math.exp(-lambda_param)
+                result = lambda_param * math.exp(-lambda_param)
             else:
                 # Per k > 1 con lambda molto piccola, probabilità è trascurabile
                 # ma calcoliamo comunque per precisione
                 log_prob = k * math.log(lambda_param) - lambda_param
                 for i in range(1, k + 1):
                     log_prob -= math.log(i)
-                return math.exp(log_prob)
+                result = math.exp(log_prob)
+            
+            # Cache result
+            if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
+                self._cache_poisson[(k, round(lambda_param, 6))] = result
+            return result
         
         # Algoritmo avanzato per precisione massima
         if self.use_advanced_numerical:
@@ -559,7 +611,12 @@ class AdvancedProbabilityCalculator:
             
             result = math.exp(log_prob)
             # Verifica che il risultato sia ragionevole
-            return max(0.0, min(1.0, result))
+            result = max(0.0, min(1.0, result))
+            
+            # Cache result
+            if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
+                self._cache_poisson[(k, round(lambda_param, 6))] = result
+            return result
         
         # Algoritmo standard (più veloce)
         if self.use_log_space and (lambda_param > 3.0 or lambda_param < 0.3):
@@ -567,15 +624,25 @@ class AdvancedProbabilityCalculator:
             log_prob = k * math.log(lambda_param) - lambda_param
             for i in range(1, k + 1):
                 log_prob -= math.log(i)
-            return math.exp(log_prob)
+            result = math.exp(log_prob)
+            
+            # Cache result
+            if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
+                self._cache_poisson[(k, round(lambda_param, 6))] = result
+            return result
         else:
             # Calcolo diretto per lambda normali (più veloce)
             if k == 0:
-                return math.exp(-lambda_param)
+                result = math.exp(-lambda_param)
             elif k == 1:
-                return lambda_param * math.exp(-lambda_param)
+                result = lambda_param * math.exp(-lambda_param)
             else:
-                return (lambda_param ** k * math.exp(-lambda_param)) / math.factorial(k)
+                result = (lambda_param ** k * math.exp(-lambda_param)) / math.factorial(k)
+            
+            # Cache result
+            if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
+                self._cache_poisson[(k, round(lambda_param, 6))] = result
+            return result
     
     def get_overdispersion_factor(self, lambda_param: float) -> float:
         """
@@ -1632,8 +1699,21 @@ class AdvancedProbabilityCalculator:
         # Limite gol dinamico per ottimizzazione
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
+        # Ottimizzazione: early exit se probabilità diventa trascurabile
+        min_prob_threshold = 1e-10  # Soglia minima per continuare
+        
         for home in range(max_goals + 1):
+            # Ottimizzazione: skip se probabilità casa è già trascurabile
+            prob_home_base = self.poisson_probability(home, lambda_home)
+            if prob_home_base < min_prob_threshold and home > 3:
+                continue  # Skip iterazioni con probabilità trascurabili
+            
             for away in range(max_goals + 1):
+                # Ottimizzazione: skip se probabilità trasferta è già trascurabile
+                prob_away_base = self.poisson_probability(away, lambda_away)
+                if prob_away_base < min_prob_threshold and away > 3:
+                    continue
+                
                 prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                 
                 if home > away:
