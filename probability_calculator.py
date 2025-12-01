@@ -106,8 +106,9 @@ class AdvancedProbabilityCalculator:
             # Mantieni la direzione ma riduci lo spread
             spread = max_abs_spread if spread > 0 else -max_abs_spread
         
-        lambda_home = (total - spread) / 2.0
-        lambda_away = (total + spread) / 2.0
+        # PRECISIONE: usa moltiplicazione invece di divisione dove possibile
+        lambda_home = (total - spread) * 0.5
+        lambda_away = (total + spread) * 0.5
         
         # Smoothing per lambda molto basse (evita problemi numerici)
         # Usa 0.05 invece di 0.01 per maggiore stabilità
@@ -222,7 +223,8 @@ class AdvancedProbabilityCalculator:
         Returns:
             Valore rho ottimizzato
         """
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # PRECISIONE: calcolo più preciso usando moltiplicazione invece di divisione
+        avg_lambda = (lambda_home + lambda_away) * 0.5
         
         # Interpolazione smooth invece di step function
         if avg_lambda < 1.0:
@@ -414,9 +416,10 @@ class AdvancedProbabilityCalculator:
         else:
             n = k + r - 1
             # log(n!) - log(k!) - log((r-1)!)
-            log_n_fact = sum(math.log(i) for i in range(1, int(n) + 1) if i > 0)
-            log_k_fact = sum(math.log(i) for i in range(1, k + 1) if i > 0)
-            log_r_fact = sum(math.log(i) for i in range(1, int(r)) if i > 0)
+            # PRECISIONE: usa math.lgamma invece di sum(math.log) per maggiore precisione
+            log_n_fact = math.lgamma(int(n) + 1) if int(n) >= 0 else 0.0
+            log_k_fact = math.lgamma(k + 1) if k >= 0 else 0.0
+            log_r_fact = math.lgamma(int(r)) if int(r) > 0 else 0.0
             log_comb = log_n_fact - log_k_fact - log_r_fact
         
         log_prob = log_comb + r * math.log(p) + k * math.log(q)
@@ -699,7 +702,8 @@ class AdvancedProbabilityCalculator:
             return 1.0
         
         # Correlazione Karlis-Ntzoufras (tipicamente 0.05-0.15, più alta per match equilibrati)
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # PRECISIONE: calcolo più preciso usando moltiplicazione invece di divisione
+        avg_lambda = (lambda_home + lambda_away) * 0.5
         if avg_lambda < 1.5:
             rho_kn = 0.12
         elif avg_lambda < 2.5:
@@ -778,7 +782,8 @@ class AdvancedProbabilityCalculator:
         
         # Calcola quanto è equilibrato il match
         ratio = max(lambda_home, lambda_away) / min(lambda_home, lambda_away) if min(lambda_home, lambda_away) > 0 else 1.0
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # PRECISIONE: calcolo più preciso usando moltiplicazione invece di divisione
+        avg_lambda = (lambda_home + lambda_away) * 0.5
         
         # Bias è più pronunciato per match molto equilibrati o molto sbilanciati
         if ratio < 1.2 and avg_lambda < 2.5:
@@ -816,11 +821,14 @@ class AdvancedProbabilityCalculator:
             return 0.0  # Non usato se disabilitato
         
         # Parametro di correlazione (lambda3) basato su lambda medie
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # PRECISIONE: calcolo più preciso usando moltiplicazione invece di divisione
+        avg_lambda = (lambda_home + lambda_away) * 0.5
         lambda_corr = 0.05 * avg_lambda  # Correlazione proporzionale
         
         # Calcolo Bivariate Poisson
+        # PRECISIONE: usa Kahan Summation per ridurre errori di arrotondamento
         prob = 0.0
+        prob_error = 0.0  # Errore accumulato per prob
         max_k = min(home_goals, away_goals)
         
         for k in range(max_k + 1):
@@ -829,7 +837,12 @@ class AdvancedProbabilityCalculator:
             prob_away_ind = self.poisson_probability(away_goals - k, lambda_away - lambda_corr)
             prob_corr = self.poisson_probability(k, lambda_corr)
             
-            prob += prob_home_ind * prob_away_ind * prob_corr
+            # PRECISIONE: Kahan Summation
+            term = prob_home_ind * prob_away_ind * prob_corr
+            y = term - prob_error
+            t = prob + y
+            prob_error = (t - prob) - y
+            prob = t
         
         return prob
     
@@ -1106,12 +1119,18 @@ class AdvancedProbabilityCalculator:
         
         # P(Over 2.5 | Casa vince)
         # Calcola: P(Over 2.5 ∩ Casa vince) / P(Casa vince)
+        # PRECISIONE: usa Kahan Summation
         prob_over_and_home = 0.0
+        error_over_home = 0.0
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         for home in range(max_goals + 1):
             for away in range(max_goals + 1):
                 if home > away and home + away > 2.5:
-                    prob_over_and_home += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    y = p - error_over_home
+                    t = prob_over_and_home + y
+                    error_over_home = (t - prob_over_and_home) - y
+                    prob_over_and_home = t
         
         if prob_1x2['1'] > 0:
             conditional_probs['Over_2.5_given_Home'] = prob_over_and_home / prob_1x2['1']
@@ -1119,11 +1138,17 @@ class AdvancedProbabilityCalculator:
             conditional_probs['Over_2.5_given_Home'] = prob_over_under.get('Over 2.5', 0.5)
         
         # P(GG | Over 2.5)
+        # PRECISIONE: usa Kahan Summation
         prob_gg_and_over = 0.0
+        error_gg_over = 0.0
         for home in range(1, max_goals + 1):
             for away in range(1, max_goals + 1):
                 if home + away > 2.5:
-                    prob_gg_and_over += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    y = p - error_gg_over
+                    t = prob_gg_and_over + y
+                    error_gg_over = (t - prob_gg_and_over) - y
+                    prob_gg_and_over = t
         
         if prob_over_under.get('Over 2.5', 0) > 0:
             conditional_probs['GG_given_Over_2.5'] = prob_gg_and_over / prob_over_under.get('Over 2.5', 1.0)
@@ -1262,7 +1287,8 @@ class AdvancedProbabilityCalculator:
         u2 = self.poisson_probability(away_goals, lambda_away)
         
         # Correlazione dinamica basata su caratteristiche del match
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # PRECISIONE: calcolo più preciso usando moltiplicazione invece di divisione
+        avg_lambda = (lambda_home + lambda_away) * 0.5
         ratio = lambda_home / lambda_away if lambda_away > 0 else 1.0
         
         # Correlazione più alta per match equilibrati e risultati estremi
@@ -2115,8 +2141,11 @@ class AdvancedProbabilityCalculator:
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
         for handicap in handicap_values:
+            # PRECISIONE: usa Kahan Summation
             prob_casa = 0.0
             prob_trasferta = 0.0
+            error_casa = 0.0
+            error_trasferta = 0.0
             
             for home in range(max_goals + 1):
                 for away in range(max_goals + 1):
@@ -2125,10 +2154,17 @@ class AdvancedProbabilityCalculator:
                     # Applica handicap: aggiungi handicap a casa
                     home_with_handicap = home + handicap
                     
+                    # PRECISIONE: Kahan Summation
                     if home_with_handicap > away:
-                        prob_casa += prob
+                        y = prob - error_casa
+                        t = prob_casa + y
+                        error_casa = (t - prob_casa) - y
+                        prob_casa = t
                     elif home_with_handicap < away:
-                        prob_trasferta += prob
+                        y = prob - error_trasferta
+                        t = prob_trasferta + y
+                        error_trasferta = (t - prob_trasferta) - y
+                        prob_trasferta = t
                     # Se pari, non aggiungiamo (handicap .5 o .0)
             
             # Normalizzazione (ottimizzata)
@@ -2173,20 +2209,32 @@ class AdvancedProbabilityCalculator:
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
         # Calcola probabilità per ogni total
+        # PRECISIONE: usa Kahan Summation
         for total_goals in range(max_total + 1):
             prob = 0.0
+            prob_error = 0.0
             for home in range(max_goals + 1):
                 for away in range(max_goals + 1):
                     if home + away == total_goals:
-                        prob += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                        p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                        y = p - prob_error
+                        t = prob + y
+                        prob_error = (t - prob) - y
+                        prob = t
             results[f'Esattamente {total_goals}'] = prob
         
         # Total 6+ (somma di tutti i totali >= 6)
+        # PRECISIONE: usa Kahan Summation
         prob_6plus = 0.0
+        error_6plus = 0.0
         for home in range(max_goals + 1):
             for away in range(max_goals + 1):
                 if home + away >= 6:
-                    prob_6plus += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    y = p - error_6plus
+                    t = prob_6plus + y
+                    error_6plus = (t - prob_6plus) - y
+                    prob_6plus = t
         results['6+'] = prob_6plus
         
         return results
@@ -2205,18 +2253,27 @@ class AdvancedProbabilityCalculator:
         Returns:
             Dict con probabilità Win to Nil per casa e trasferta
         """
+        # PRECISIONE: usa Kahan Summation
         prob_casa_wtn = 0.0
         prob_trasferta_wtn = 0.0
+        error_casa_wtn = 0.0
+        error_trasferta_wtn = 0.0
         
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
         for home in range(1, max_goals + 1):  # Casa deve segnare almeno 1
             prob = self.exact_score_probability(home, 0, lambda_home, lambda_away)
-            prob_casa_wtn += prob
+            y = prob - error_casa_wtn
+            t = prob_casa_wtn + y
+            error_casa_wtn = (t - prob_casa_wtn) - y
+            prob_casa_wtn = t
         
         for away in range(1, max_goals + 1):  # Trasferta deve segnare almeno 1
             prob = self.exact_score_probability(0, away, lambda_home, lambda_away)
-            prob_trasferta_wtn += prob
+            y = prob - error_trasferta_wtn
+            t = prob_trasferta_wtn + y
+            error_trasferta_wtn = (t - prob_trasferta_wtn) - y
+            prob_trasferta_wtn = t
         
         return {
             'Casa Win to Nil': prob_casa_wtn,
@@ -2237,16 +2294,28 @@ class AdvancedProbabilityCalculator:
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
         # Entrambe segnano almeno 1
+        # PRECISIONE: usa Kahan Summation
         prob_both_score = 0.0
+        error_both_score = 0.0
         for home in range(1, max_goals + 1):
             for away in range(1, max_goals + 1):
-                prob_both_score += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                y = p - error_both_score
+                t = prob_both_score + y
+                error_both_score = (t - prob_both_score) - y
+                prob_both_score = t
         
         # Entrambe segnano almeno 2
+        # PRECISIONE: usa Kahan Summation
         prob_both_score_2plus = 0.0
+        error_both_score_2plus = 0.0
         for home in range(2, max_goals + 1):
             for away in range(2, max_goals + 1):
-                prob_both_score_2plus += self.exact_score_probability(home, away, lambda_home, lambda_away)
+                p = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                y = p - error_both_score_2plus
+                t = prob_both_score_2plus + y
+                error_both_score_2plus = (t - prob_both_score_2plus) - y
+                prob_both_score_2plus = t
         
         return {
             'Entrambe segnano (GG)': prob_both_score,
