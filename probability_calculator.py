@@ -52,41 +52,113 @@ class AdvancedProbabilityCalculator:
         Returns:
             Tuple[lambda_home, lambda_away]
         """
+        # Verifica compatibilità matematica
+        # Se spread è troppo grande rispetto al total, aggiusta
+        max_abs_spread = total - 0.1  # Spread massimo possibile (con minimo 0.05 per entrambe le lambda)
+        if abs(spread) > max_abs_spread:
+            # Caso estremo: spread troppo grande per il total
+            # Mantieni la direzione ma riduci lo spread
+            spread = max_abs_spread if spread > 0 else -max_abs_spread
+        
         lambda_home = (total - spread) / 2.0
         lambda_away = (total + spread) / 2.0
         
-        # Verifica coerenza: total deve essere lambda_home + lambda_away
-        # (verifica matematica per sicurezza)
-        calculated_total = lambda_home + lambda_away
-        if abs(calculated_total - total) > 0.001:
-            # Se c'è discrepanza (molto raro), ri-normalizza
-            scale_factor = total / calculated_total if calculated_total > 0 else 1.0
-            lambda_home *= scale_factor
-            lambda_away *= scale_factor
-        
         # Smoothing per lambda molto basse (evita problemi numerici)
         # Usa 0.05 invece di 0.01 per maggiore stabilità
-        lambda_home = max(0.05, lambda_home)
-        lambda_away = max(0.05, lambda_away)
+        # Strategia: mantieni il rapporto spread/total quando possibile
+        min_lambda = 0.05
+        
+        # Calcola il rapporto originale per mantenerlo
+        original_ratio_home = lambda_home / total if total > 0 else 0.5
+        original_ratio_away = lambda_away / total if total > 0 else 0.5
+        
+        # Se entrambe le lambda sono troppo basse, bilancia mantenendo il rapporto
+        if lambda_home < min_lambda and lambda_away < min_lambda:
+            # Caso estremo: total molto basso, bilancia equamente
+            if total < 2 * min_lambda:
+                # Total troppo basso: bilancia equamente
+                lambda_home = total / 2.0
+                lambda_away = total / 2.0
+            else:
+                # Mantieni il rapporto originale ma assicura minimo
+                lambda_home = max(min_lambda, total * original_ratio_home)
+                lambda_away = total - lambda_home
+                if lambda_away < min_lambda:
+                    lambda_away = min_lambda
+                    lambda_home = total - lambda_away
+        elif lambda_home < min_lambda:
+            # Solo lambda_home troppo bassa: aumenta mantenendo il total
+            lambda_home = min_lambda
+            lambda_away = total - lambda_home
+            # Se lambda_away diventa negativa o troppo bassa, bilancia
+            if lambda_away < min_lambda:
+                if total >= 2 * min_lambda:
+                    lambda_away = min_lambda
+                    lambda_home = total - lambda_away
+                else:
+                    # Total troppo basso: bilancia equamente
+                    lambda_home = total / 2.0
+                    lambda_away = total / 2.0
+        elif lambda_away < min_lambda:
+            # Solo lambda_away troppo bassa: aumenta mantenendo il total
+            lambda_away = min_lambda
+            lambda_home = total - lambda_away
+            if lambda_home < min_lambda:
+                if total >= 2 * min_lambda:
+                    lambda_home = min_lambda
+                    lambda_away = total - lambda_home
+                else:
+                    # Total troppo basso: bilancia equamente
+                    lambda_home = total / 2.0
+                    lambda_away = total / 2.0
         
         # Limite superiore realistico (match molto offensivi raramente superano 4.5 gol attesi per squadra)
         # Se viene applicato il limite, ri-normalizza per mantenere il total corretto
-        if lambda_home > 4.5 or lambda_away > 4.5:
-            # Mantieni il rapporto ma limita entrambi
-            if lambda_home > 4.5:
-                lambda_home = 4.5
-            if lambda_away > 4.5:
-                lambda_away = 4.5
-            # Ri-normalizza per mantenere il total (se possibile)
-            current_total = lambda_home + lambda_away
-            if current_total > 0 and total > 0:
-                # Mantieni il rapporto ma scala al total originale
-                scale = total / current_total
+        max_lambda = 4.5
+        
+        if lambda_home > max_lambda or lambda_away > max_lambda:
+            # Calcola il rapporto originale per mantenerlo
+            if lambda_home > 0 and lambda_away > 0:
+                ratio = lambda_home / (lambda_home + lambda_away)
+            else:
+                ratio = 0.5
+            
+            # Limita entrambi mantenendo il rapporto
+            if lambda_home > max_lambda:
+                lambda_home = max_lambda
+                # Aggiusta lambda_away per mantenere il total
+                lambda_away = total - lambda_home
+                if lambda_away > max_lambda:
+                    lambda_away = max_lambda
+                    # Se entrambi sono al limite, scala proporzionalmente
+                    current_total = lambda_home + lambda_away
+                    if current_total > total:
+                        scale = total / current_total
+                        lambda_home *= scale
+                        lambda_away *= scale
+            
+            if lambda_away > max_lambda:
+                lambda_away = max_lambda
+                lambda_home = total - lambda_away
+                if lambda_home > max_lambda:
+                    lambda_home = max_lambda
+                    current_total = lambda_home + lambda_away
+                    if current_total > total:
+                        scale = total / current_total
+                        lambda_home *= scale
+                        lambda_away *= scale
+        
+        # Verifica finale: assicura che total sia corretto
+        calculated_total = lambda_home + lambda_away
+        if abs(calculated_total - total) > 0.001:
+            # Ultimo tentativo: scala proporzionalmente
+            if calculated_total > 0:
+                scale = total / calculated_total
                 lambda_home *= scale
                 lambda_away *= scale
-                # Ri-applica limite se necessario
-                lambda_home = min(4.5, lambda_home)
-                lambda_away = min(4.5, lambda_away)
+                # Ri-applica limiti se necessario
+                lambda_home = max(min_lambda, min(max_lambda, lambda_home))
+                lambda_away = max(min_lambda, min(max_lambda, lambda_away))
         
         return lambda_home, lambda_away
     
@@ -372,18 +444,33 @@ class AdvancedProbabilityCalculator:
         - Match normali (2.0-3.0): ~45% gol nel primo tempo  
         - Match ad alto scoring (> 3.0): ~48% gol nel primo tempo
         
+        Formula migliorata: usa interpolazione lineare per transizioni più smooth.
+        
         Args:
             total_lambda: Somma delle attese gol (lambda_home + lambda_away)
             
         Returns:
             Fattore di riduzione per primo tempo
         """
-        if total_lambda < 2.0:
-            return 0.42
+        # Interpolazione lineare per transizioni più smooth
+        if total_lambda < 1.5:
+            return 0.41
+        elif total_lambda < 2.0:
+            # Interpolazione tra 1.5 e 2.0
+            return 0.41 + (total_lambda - 1.5) * 0.02  # 0.41 -> 0.42
+        elif total_lambda < 2.5:
+            # Interpolazione tra 2.0 e 2.5
+            return 0.42 + (total_lambda - 2.0) * 0.06  # 0.42 -> 0.45
         elif total_lambda < 3.0:
             return 0.45
+        elif total_lambda < 3.5:
+            # Interpolazione tra 3.0 e 3.5
+            return 0.45 + (total_lambda - 3.0) * 0.04  # 0.45 -> 0.47
         elif total_lambda < 4.0:
             return 0.47
+        elif total_lambda < 4.5:
+            # Interpolazione tra 4.0 e 4.5
+            return 0.47 + (total_lambda - 4.0) * 0.02  # 0.47 -> 0.48
         else:
             return 0.48
     
