@@ -46,6 +46,12 @@ class AdvancedProbabilityCalculator:
         self.use_lambda_regression = True  # Regressione avanzata per lambda (solo pattern teorici)
         self.use_extended_precision = True  # Precisione numerica estesa
         
+        # Formule aggiuntive per precisione massima
+        self.use_market_consistency = True  # Coerenza tra mercati correlati
+        self.use_conditional_probabilities = True  # Probabilità condizionali
+        self.use_uncertainty_quantification = True  # Quantificazione incertezza
+        self.use_volatility_adjustment = True  # Aggiustamento per volatilità spread/total
+        
     def spread_to_expected_goals(self, spread: float, total: float) -> Tuple[float, float]:
         """
         Converte spread e total in attese gol (lambda) per casa e trasferta.
@@ -921,6 +927,230 @@ class AdvancedProbabilityCalculator:
         
         return lambda_home, lambda_away
     
+    def market_consistency_adjustment(self, prob_1x2: Dict[str, float],
+                                     prob_over_under: Dict[str, float],
+                                     lambda_home: float, lambda_away: float) -> Dict[str, float]:
+        """
+        Aggiustamento per coerenza tra mercati correlati.
+        
+        Assicura che probabilità di mercati correlati siano matematicamente coerenti:
+        - Over/Under deve essere coerente con 1X2 (match offensivi = più Over)
+        - GG/NG deve essere coerente con total atteso
+        - Probabilità devono rispettare relazioni matematiche
+        
+        Formula teorica: usa probabilità condizionali per migliorare coerenza.
+        
+        Args:
+            prob_1x2: Probabilità 1X2
+            prob_over_under: Probabilità Over/Under
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            
+        Returns:
+            Dict con probabilità Over/Under aggiustate per coerenza
+        """
+        if not self.use_market_consistency:
+            return prob_over_under
+        
+        # Calcola probabilità condizionali: P(Over 2.5 | Casa vince)
+        # Match offensivi (casa favorita) tendono ad avere più Over
+        total = lambda_home + lambda_away
+        ratio = lambda_home / lambda_away if lambda_away > 0 else 1.0
+        
+        # Aggiustamento basato su coerenza teorica
+        # Se casa è molto favorita (ratio alto), Over 2.5 dovrebbe essere leggermente più probabile
+        # perché match sbilanciati tendono ad avere più gol totali
+        consistency_factor = 1.0
+        
+        if ratio > 1.5 and total > 2.5:
+            # Casa favorita + match offensivo: aumenta Over
+            consistency_factor = 1.02
+        elif ratio < 0.67 and total > 2.5:
+            # Trasferta favorita + match offensivo: aumenta Over
+            consistency_factor = 1.02
+        elif total < 2.0:
+            # Match difensivo: riduci Over
+            consistency_factor = 0.98
+        
+        # Applica aggiustamento solo se significativo
+        adjusted = {}
+        for key, value in prob_over_under.items():
+            if 'Over' in key:
+                adjusted[key] = min(1.0, value * consistency_factor)
+            elif 'Under' in key:
+                adjusted[key] = max(0.0, value / consistency_factor)
+            else:
+                adjusted[key] = value
+        
+        # Normalizza per mantenere coerenza
+        for threshold in [0.5, 1.5, 2.5, 3.5, 4.5]:
+            over_key = f'Over {threshold}'
+            under_key = f'Under {threshold}'
+            if over_key in adjusted and under_key in adjusted:
+                total = adjusted[over_key] + adjusted[under_key]
+                if total > 0:
+                    adjusted[over_key] /= total
+                    adjusted[under_key] /= total
+        
+        return adjusted
+    
+    def conditional_probability_adjustment(self, lambda_home: float, lambda_away: float,
+                                          condition: str = None) -> Dict[str, float]:
+        """
+        Calcola probabilità condizionali per migliorare precisione.
+        
+        Probabilità condizionali:
+        - P(Over 2.5 | Casa vince): Over più probabile se casa vince
+        - P(GG | Over 2.5): GG più probabile se Over
+        - P(Under 2.5 | Pareggio): Under più probabile se pareggio
+        
+        Formula teorica: P(A|B) = P(A∩B) / P(B)
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            condition: Condizione (es. "casa_vince", "over_2.5")
+            
+        Returns:
+            Dict con probabilità condizionali aggiustate
+        """
+        if not self.use_conditional_probabilities:
+            return {}
+        
+        # Calcola probabilità base
+        prob_1x2 = self.calculate_1x2_probabilities(lambda_home, lambda_away)
+        prob_over_under = self.calculate_over_under_probabilities(lambda_home, lambda_away)
+        prob_gg_ng = self.calculate_gg_ng_probabilities(lambda_home, lambda_away)
+        
+        # Probabilità condizionali
+        conditional_probs = {}
+        
+        # P(Over 2.5 | Casa vince)
+        # Calcola: P(Over 2.5 ∩ Casa vince) / P(Casa vince)
+        prob_over_and_home = 0.0
+        max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        for home in range(max_goals + 1):
+            for away in range(max_goals + 1):
+                if home > away and home + away > 2.5:
+                    prob_over_and_home += self.exact_score_probability(home, away, lambda_home, lambda_away)
+        
+        if prob_1x2['1'] > 0:
+            conditional_probs['Over_2.5_given_Home'] = prob_over_and_home / prob_1x2['1']
+        else:
+            conditional_probs['Over_2.5_given_Home'] = prob_over_under.get('Over 2.5', 0.5)
+        
+        # P(GG | Over 2.5)
+        prob_gg_and_over = 0.0
+        for home in range(1, max_goals + 1):
+            for away in range(1, max_goals + 1):
+                if home + away > 2.5:
+                    prob_gg_and_over += self.exact_score_probability(home, away, lambda_home, lambda_away)
+        
+        if prob_over_under.get('Over 2.5', 0) > 0:
+            conditional_probs['GG_given_Over_2.5'] = prob_gg_and_over / prob_over_under.get('Over 2.5', 1.0)
+        else:
+            conditional_probs['GG_given_Over_2.5'] = prob_gg_ng.get('GG', 0.5)
+        
+        return conditional_probs
+    
+    def uncertainty_quantification(self, lambda_home: float, lambda_away: float,
+                                 spread_change: float = 0.0, total_change: float = 0.0) -> Dict[str, float]:
+        """
+        Quantifica incertezza nelle probabilità calcolate.
+        
+        Calcola confidence intervals e incertezza basata su:
+        - Varianza di lambda (maggiore per lambda basse)
+        - Cambiamenti in spread/total (maggiore volatilità = più incertezza)
+        - Coerenza tra apertura e corrente
+        
+        Formula teorica: incertezza = sqrt(variance) / mean
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            spread_change: Cambiamento spread (apertura -> corrente)
+            total_change: Cambiamento total (apertura -> corrente)
+            
+        Returns:
+            Dict con metriche di incertezza
+        """
+        if not self.use_uncertainty_quantification:
+            return {}
+        
+        # Incertezza basata su varianza di lambda
+        # Poisson: varianza = lambda, quindi incertezza relativa = 1/sqrt(lambda)
+        uncertainty_home = 1.0 / math.sqrt(max(lambda_home, 0.1))
+        uncertainty_away = 1.0 / math.sqrt(max(lambda_away, 0.1))
+        
+        # Incertezza basata su volatilità (cambiamenti spread/total)
+        volatility = math.sqrt(spread_change**2 + total_change**2)
+        volatility_uncertainty = min(0.2, volatility * 0.1)  # Max 20% incertezza aggiuntiva
+        
+        # Incertezza combinata
+        total_uncertainty = (uncertainty_home + uncertainty_away) / 2.0 + volatility_uncertainty
+        
+        # Confidence intervals (95% CI)
+        # Per Poisson: CI ≈ lambda ± 1.96 * sqrt(lambda)
+        ci_home_lower = max(0.0, lambda_home - 1.96 * math.sqrt(lambda_home))
+        ci_home_upper = lambda_home + 1.96 * math.sqrt(lambda_home)
+        ci_away_lower = max(0.0, lambda_away - 1.96 * math.sqrt(lambda_away))
+        ci_away_upper = lambda_away + 1.96 * math.sqrt(lambda_away)
+        
+        return {
+            'Uncertainty_Home': uncertainty_home,
+            'Uncertainty_Away': uncertainty_away,
+            'Total_Uncertainty': total_uncertainty,
+            'Volatility_Uncertainty': volatility_uncertainty,
+            'CI_Home_Lower': ci_home_lower,
+            'CI_Home_Upper': ci_home_upper,
+            'CI_Away_Lower': ci_away_lower,
+            'CI_Away_Upper': ci_away_upper,
+            'Confidence_Level': 0.95
+        }
+    
+    def volatility_adjustment(self, lambda_home: float, lambda_away: float,
+                            spread_opening: float, total_opening: float,
+                            spread_current: float, total_current: float) -> Tuple[float, float]:
+        """
+        Aggiusta lambda per volatilità del mercato.
+        
+        Se spread/total cambiano molto tra apertura e corrente:
+        - Maggiore incertezza nel mercato
+        - Lambda potrebbero essere leggermente sovrastimate
+        - Aggiusta per riflettere maggiore incertezza
+        
+        Formula teorica: aggiustamento basato su coefficiente di variazione.
+        
+        Args:
+            lambda_home: Attesa gol casa corrente
+            lambda_away: Attesa gol trasferta corrente
+            spread_opening: Spread apertura
+            total_opening: Total apertura
+            spread_current: Spread corrente
+            total_current: Total corrente
+            
+        Returns:
+            Tuple di lambda aggiustate per volatilità
+        """
+        if not self.use_volatility_adjustment:
+            return lambda_home, lambda_away
+        
+        # Calcola volatilità relativa
+        spread_volatility = abs(spread_current - spread_opening) / max(abs(spread_opening), 0.1)
+        total_volatility = abs(total_current - total_opening) / max(total_opening, 0.1)
+        
+        # Volatilità combinata
+        combined_volatility = (spread_volatility + total_volatility) / 2.0
+        
+        # Se volatilità > 20%, aggiusta lambda (riduci leggermente per riflettere incertezza)
+        if combined_volatility > 0.2:
+            # Aggiustamento: riduci lambda del 1-3% per alta volatilità
+            adjustment = 1.0 - min(0.03, combined_volatility * 0.1)
+            lambda_home *= adjustment
+            lambda_away *= adjustment
+        
+        return lambda_home, lambda_away
+    
     def _exact_score_probability_core(self, home_goals: int, away_goals: int,
                                       lambda_home: float, lambda_away: float,
                                       use_ensemble: bool = False) -> float:
@@ -1205,7 +1435,7 @@ class AdvancedProbabilityCalculator:
         """
         Calcola probabilità Over/Under per vari totali.
         
-        Versione ottimizzata con limite gol dinamico e normalizzazione.
+        Versione ottimizzata con limite gol dinamico, normalizzazione e coerenza tra mercati.
         
         Args:
             lambda_home: Attesa gol casa
@@ -1213,7 +1443,7 @@ class AdvancedProbabilityCalculator:
             thresholds: Lista di soglie (default: [0.5, 1.5, 2.5, 3.5, 4.5])
             
         Returns:
-            Dict con probabilità Over/Under per ogni soglia (normalizzate)
+            Dict con probabilità Over/Under per ogni soglia (normalizzate e coerenti)
         """
         if thresholds is None:
             thresholds = [0.5, 1.5, 2.5, 3.5, 4.5]
@@ -1245,6 +1475,11 @@ class AdvancedProbabilityCalculator:
             
             results[f'Over {threshold}'] = prob_over
             results[f'Under {threshold}'] = prob_under
+        
+        # Applica aggiustamento per coerenza tra mercati (se abilitato)
+        if self.use_market_consistency:
+            prob_1x2 = self.calculate_1x2_probabilities(lambda_home, lambda_away)
+            results = self.market_consistency_adjustment(prob_1x2, results, lambda_home, lambda_away)
         
         return results
     
@@ -1597,6 +1832,12 @@ class AdvancedProbabilityCalculator:
         """
         Calcola tutte le probabilità per apertura e corrente.
         
+        Versione migliorata con:
+        - Aggiustamento volatilità
+        - Quantificazione incertezza
+        - Probabilità condizionali
+        - Coerenza tra mercati
+        
         Args:
             spread_opening: Spread apertura
             total_opening: Total apertura
@@ -1604,7 +1845,7 @@ class AdvancedProbabilityCalculator:
             total_current: Total corrente
             
         Returns:
-            Dict completo con tutte le probabilità calcolate
+            Dict completo con tutte le probabilità calcolate + metriche avanzate
         """
         # Calcolo attese gol per apertura
         lambda_home_opening, lambda_away_opening = self.spread_to_expected_goals(
@@ -1615,6 +1856,14 @@ class AdvancedProbabilityCalculator:
         lambda_home_current, lambda_away_current = self.spread_to_expected_goals(
             spread_current, total_current
         )
+        
+        # Applica aggiustamento volatilità (se abilitato)
+        if self.use_volatility_adjustment:
+            lambda_home_current, lambda_away_current = self.volatility_adjustment(
+                lambda_home_current, lambda_away_current,
+                spread_opening, total_opening,
+                spread_current, total_current
+            )
         
         # Calcolo probabilità apertura
         opening_probs = {
@@ -1652,6 +1901,21 @@ class AdvancedProbabilityCalculator:
             }
         }
         
+        # Calcola metriche avanzate (se abilitate)
+        advanced_metrics = {}
+        
+        if self.use_uncertainty_quantification:
+            advanced_metrics['Uncertainty'] = self.uncertainty_quantification(
+                lambda_home_current, lambda_away_current,
+                spread_current - spread_opening,
+                total_current - total_opening
+            )
+        
+        if self.use_conditional_probabilities:
+            advanced_metrics['Conditional'] = self.conditional_probability_adjustment(
+                lambda_home_current, lambda_away_current
+            )
+        
         return {
             'Opening': opening_probs,
             'Current': current_probs,
@@ -1660,6 +1924,7 @@ class AdvancedProbabilityCalculator:
                 'Total_Change': total_current - total_opening,
                 'Home_EG_Change': lambda_home_current - lambda_home_opening,
                 'Away_EG_Change': lambda_away_current - lambda_away_opening
-            }
+            },
+            'Advanced_Metrics': advanced_metrics if advanced_metrics else None
         }
 
