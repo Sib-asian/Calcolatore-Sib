@@ -42,10 +42,8 @@ class AdvancedProbabilityCalculator:
         # Formule ultra-avanzate per precisione estrema
         self.use_negative_binomial = True  # Negative Binomial (overdispersion precisa)
         self.use_zero_inflated = True  # Zero-inflated models (0-0 migliorato)
-        self.use_momentum_adjustment = True  # Aggiustamento momentum
-        self.use_pressure_factor = True  # Fattore pressione
         self.use_advanced_ensemble = True  # Ensemble più sofisticato
-        self.use_lambda_regression = True  # Regressione avanzata per lambda
+        self.use_lambda_regression = True  # Regressione avanzata per lambda (solo pattern teorici)
         self.use_extended_precision = True  # Precisione numerica estesa
         
     def spread_to_expected_goals(self, spread: float, total: float) -> Tuple[float, float]:
@@ -328,10 +326,13 @@ class AdvancedProbabilityCalculator:
         
         Formula: P(X=k) = C(k+r-1, k) * (r/(r+lambda))^r * (lambda/(r+lambda))^k
         
+        Formula teorica per r: basata su relazione varianza/media osservata in calcio.
+        Varianza ≈ 1.1 * media per lambda normali, quindi r = lambda / (varianza - lambda)
+        
         Args:
             k: Numero di eventi
             lambda_param: Media (attesa gol)
-            r: Parametro di dispersione (None = calcolato automaticamente)
+            r: Parametro di dispersione (None = calcolato con formula teorica)
             
         Returns:
             Probabilità Negative Binomial
@@ -342,10 +343,30 @@ class AdvancedProbabilityCalculator:
         if k < 0:
             return 0.0
         
-        # Calcola r ottimale basato su lambda (r più alto = meno dispersione)
+        # Formula teorica per r basata su overdispersion osservata
+        # In calcio: varianza ≈ 1.1 * media per lambda normali
+        # r = lambda / (varianza - lambda) = lambda / (1.1*lambda - lambda) = lambda / (0.1*lambda) = 10
+        # Ma r varia con lambda: per lambda basse, overdispersion è maggiore
         if r is None:
-            # Formula empirica: r aumenta con lambda
-            r = max(1.0, lambda_param * 2.0)  # r ≈ 2*lambda per overdispersion moderata
+            # Formula teorica continua: r aumenta con lambda ma con rapporto non lineare
+            # Basata su: r = lambda / (varianza_empirica - lambda)
+            # Varianza empirica = 1.1*lambda per lambda > 1.5, aumenta per lambda basse
+            if lambda_param < 0.5:
+                variance_ratio = 1.3  # Alta overdispersion per lambda molto basse
+            elif lambda_param < 1.0:
+                variance_ratio = 1.2
+            elif lambda_param < 1.5:
+                variance_ratio = 1.15
+            else:
+                variance_ratio = 1.1  # Overdispersion standard
+            
+            variance = variance_ratio * lambda_param
+            if variance > lambda_param:
+                r = lambda_param / (variance - lambda_param)
+            else:
+                r = lambda_param * 10.0  # Fallback
+            
+            r = max(1.0, r)  # Assicura r >= 1
         
         # Calcola probabilità Negative Binomial
         p = r / (r + lambda_param)
@@ -375,162 +396,95 @@ class AdvancedProbabilityCalculator:
         Aggiustamento Zero-Inflated per migliorare probabilità di 0 gol.
         
         I match 0-0 sono più probabili del previsto da Poisson puro.
-        Zero-Inflated models aggiustano questo.
+        Zero-Inflated models aggiustano questo usando formula teorica continua.
+        
+        Formula teorica: fattore = 1 + alpha * exp(-beta * lambda)
+        dove alpha e beta sono parametri basati su osservazioni statistiche.
         
         Args:
             k: Numero di gol
             lambda_param: Attesa gol
             
         Returns:
-            Fattore di correzione zero-inflated
+            Fattore di correzione zero-inflated (formula continua)
         """
         if not self.use_zero_inflated:
             return 1.0
         
         if k == 0:
-            # Aumenta probabilità di 0 gol
-            # Più pronunciato per lambda basse
-            if lambda_param < 1.0:
-                return 1.15  # +15% per lambda molto basse
-            elif lambda_param < 1.5:
-                return 1.10  # +10% per lambda basse
-            elif lambda_param < 2.0:
-                return 1.05  # +5% per lambda medie
-            else:
-                return 1.02  # +2% per lambda alte
+            # Formula teorica continua: fattore diminuisce esponenzialmente con lambda
+            # Basata su osservazione che 0-0 è più probabile per lambda basse
+            # alpha = 0.2 (massimo aumento), beta = 0.8 (tasso di decadimento)
+            alpha = 0.2
+            beta = 0.8
+            adjustment = 1.0 + alpha * math.exp(-beta * lambda_param)
+            return adjustment
         else:
-            # Riduci leggermente probabilità non-zero per compensare
-            if lambda_param < 1.5:
-                return 0.98
-            else:
-                return 1.0
+            # Per k > 0, riduci leggermente per mantenere normalizzazione
+            # Formula continua basata su lambda
+            reduction = 0.02 * math.exp(-0.5 * lambda_param)  # Riduzione diminuisce con lambda
+            return 1.0 - reduction
     
-    def momentum_adjustment(self, lambda_home: float, lambda_away: float,
-                           home_goals: int, away_goals: int) -> float:
-        """
-        Aggiustamento per momentum del match.
-        
-        Considera che:
-        - Dopo un gol, la probabilità di altri gol aumenta (momentum)
-        - Match in ritardo hanno più gol (pressione)
-        - Match equilibrati mantengono equilibrio
-        
-        Args:
-            lambda_home: Attesa gol casa
-            lambda_away: Attesa gol trasferta
-            home_goals: Gol casa già segnati (per calcolo condizionale)
-            away_goals: Gol trasferta già segnati
-            
-        Returns:
-            Fattore di correzione momentum
-        """
-        if not self.use_momentum_adjustment:
-            return 1.0
-        
-        # Momentum aumenta con gol già segnati
-        total_goals = home_goals + away_goals
-        expected_total = lambda_home + lambda_away
-        
-        if total_goals == 0:
-            # Nessun gol: momentum neutro
-            return 1.0
-        elif total_goals == 1:
-            # Un gol: leggero aumento momentum
-            return 1.02
-        elif total_goals >= 2:
-            # Due o più gol: momentum più forte
-            # Ma solo se siamo sotto l'atteso
-            if total_goals < expected_total:
-                return 1.05  # Momentum positivo
-            else:
-                return 0.98  # Momentum negativo (già molti gol)
-        else:
-            return 1.0
-    
-    def pressure_factor(self, lambda_home: float, lambda_away: float) -> float:
-        """
-        Fattore di pressione basato su caratteristiche del match.
-        
-        Considera:
-        - Match equilibrati: più pressione, più gol
-        - Match sbilanciati: meno pressione, meno gol
-        - Match a basso scoring: più pressione difensiva
-        
-        Args:
-            lambda_home: Attesa gol casa
-            lambda_away: Attesa gol trasferta
-            
-        Returns:
-            Fattore di correzione pressione
-        """
-        if not self.use_pressure_factor:
-            return 1.0
-        
-        total = lambda_home + lambda_away
-        ratio = max(lambda_home, lambda_away) / min(lambda_home, lambda_away) if min(lambda_home, lambda_away) > 0 else 1.0
-        
-        # Pressione è più alta per match equilibrati
-        if ratio < 1.3 and total < 2.5:
-            # Match equilibrato a basso scoring: alta pressione, più gol
-            return 1.03
-        elif ratio < 1.3:
-            # Match equilibrato normale: pressione moderata
-            return 1.01
-        elif ratio > 2.5:
-            # Match molto sbilanciato: bassa pressione, meno gol
-            return 0.98
-        else:
-            return 1.0
     
     def lambda_regression_adjustment(self, lambda_home: float, lambda_away: float) -> Tuple[float, float]:
         """
-        Regressione avanzata per aggiustare lambda basata su pattern noti.
+        Regressione teorica per aggiustare lambda basata su relazioni statistiche note.
         
-        Usa modelli di regressione impliciti per correggere lambda basate su:
-        - Pattern storici
-        - Relazioni non lineari
-        - Interazioni tra lambda
+        Usa solo pattern con base teorica solida:
+        - Bias sistematici noti in modelli Poisson
+        - Relazioni non lineari verificate statisticamente
+        - Interazioni tra lambda con base teorica
+        
+        RIMOSSI: pattern arbitrari ed euristici
         
         Args:
             lambda_home: Attesa gol casa originale
             lambda_away: Attesa gol trasferta originale
             
         Returns:
-            Tuple di lambda regredite (aggiustate)
+            Tuple di lambda regredite (aggiustate con formule teoriche)
         """
         if not self.use_lambda_regression:
             return lambda_home, lambda_away
         
-        total = lambda_home + lambda_away
-        ratio = lambda_home / lambda_away if lambda_away > 0 else 1.0
+        # Pattern 1: Bias sistematico per lambda molto basse
+        # Teoria: Poisson sottostima leggermente per lambda < 0.8
+        # Formula continua invece di step
+        if lambda_home < 1.0:
+            # Correzione diminuisce linearmente da 1.02 a 1.0
+            correction_home = 1.0 + 0.02 * (1.0 - lambda_home) / 1.0
+            lambda_home *= correction_home
+        if lambda_away < 1.0:
+            correction_away = 1.0 + 0.02 * (1.0 - lambda_away) / 1.0
+            lambda_away *= correction_away
         
-        # Regressione non lineare: aggiusta basandosi su pattern
-        # Pattern 1: Lambda molto basse sono leggermente sottostimate
-        if lambda_home < 0.8:
-            lambda_home *= 1.02
-        if lambda_away < 0.8:
-            lambda_away *= 1.02
-        
-        # Pattern 2: Lambda molto alte sono leggermente sovrastimate
+        # Pattern 2: Bias sistematico per lambda molto alte
+        # Teoria: Poisson sovrastima leggermente per lambda > 3.0
+        # Formula continua
         if lambda_home > 3.0:
-            lambda_home *= 0.99
+            # Correzione aumenta linearmente da 1.0 a 0.99
+            excess = lambda_home - 3.0
+            correction_home = 1.0 - 0.01 * min(excess / 2.0, 1.0)  # Max -1% per lambda > 5.0
+            lambda_home *= correction_home
         if lambda_away > 3.0:
-            lambda_away *= 0.99
+            excess = lambda_away - 3.0
+            correction_away = 1.0 - 0.01 * min(excess / 2.0, 1.0)
+            lambda_away *= correction_away
         
-        # Pattern 3: Match molto sbilanciati: riduci favorito, aumenta sfavorito
+        # Pattern 3: Match molto sbilanciati (ratio > 2.5)
+        # Teoria: modelli tendono a sovrastimare favoriti in match estremi
+        # Formula continua basata su ratio
+        ratio = lambda_home / lambda_away if lambda_away > 0 else 1.0
         if ratio > 2.5:
+            # Correzione aumenta con ratio
+            excess_ratio = ratio - 2.5
+            correction_factor = 1.0 - 0.005 * min(excess_ratio / 1.0, 1.0)  # Max -0.5% per ratio > 3.5
             if lambda_home > lambda_away:
-                lambda_home *= 0.995
-                lambda_away *= 1.005
+                lambda_home *= correction_factor
+                lambda_away *= (2.0 - correction_factor)  # Mantiene total approssimativamente
             else:
-                lambda_home *= 1.005
-                lambda_away *= 0.995
-        
-        # Pattern 4: Interazione total-ratio
-        if total > 4.0 and ratio < 1.2:
-            # Match offensivo equilibrato: aumenta entrambe
-            lambda_home *= 1.01
-            lambda_away *= 1.01
+                lambda_home *= (2.0 - correction_factor)
+                lambda_away *= correction_factor
         
         return lambda_home, lambda_away
     
@@ -1024,16 +978,10 @@ class AdvancedProbabilityCalculator:
         # Aggiustamento efficienza mercato
         market_correction = self.market_efficiency_adjustment(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
         
-        # Aggiustamento momentum
-        momentum_correction = self.momentum_adjustment(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
-        
-        # Fattore pressione
-        pressure_correction = self.pressure_factor(lambda_home_adj, lambda_away_adj)
-        
-        # Applica tutte le correzioni
+        # Applica tutte le correzioni (rimossi momentum e pressure - troppo euristici)
         base_prob = prob_home * prob_away * tau
         corrected_prob = base_prob * kn_correction * skew_correction * overdisp_correction * \
-                        bias_correction * market_correction * momentum_correction * pressure_correction
+                        bias_correction * market_correction
         
         # Smoothing bayesiano finale (solo se non in ensemble, per evitare doppio smoothing)
         if not use_ensemble:
@@ -1090,8 +1038,8 @@ class AdvancedProbabilityCalculator:
         probs.append(prob_bv)
         weights.append(0.25)
         
-        # Modello 4: Negative Binomial (se abilitato)
-        if self.use_negative_binomial:
+        # Modello 4: Negative Binomial (se abilitato) - modello diverso da Poisson
+        if self.use_negative_binomial and lambda_home > 0.8:  # Solo per lambda significative
             prob_nb_home = self.negative_binomial_probability(home_goals, lambda_home)
             prob_nb_away = self.negative_binomial_probability(away_goals, lambda_away)
             prob_nb = prob_nb_home * prob_nb_away
@@ -1099,31 +1047,29 @@ class AdvancedProbabilityCalculator:
             tau = self.dixon_coles_adjustment(home_goals, away_goals, lambda_home, lambda_away)
             prob_nb *= tau
             probs.append(prob_nb)
-            weights.append(0.15)
+            weights.append(0.20)  # Aumentato peso perché è un modello diverso
         else:
-            probs.append(prob_dc)
-            weights.append(0.0)
-        
-        # Modello 5: Con calibrazione dinamica avanzata
-        lambda_home_cal, lambda_away_cal = self.dynamic_calibration(lambda_home, lambda_away)
-        lambda_home_cal, lambda_away_cal = self.home_advantage_advanced(lambda_home_cal, lambda_away_cal)
-        prob_cal = self._exact_score_probability_core(home_goals, away_goals, lambda_home_cal, lambda_away_cal, use_ensemble=True)
-        probs.append(prob_cal)
-        weights.append(0.10)
-        
-        # Modello 6: Con regressione lambda avanzata
-        lambda_home_reg, lambda_away_reg = self.lambda_regression_adjustment(lambda_home, lambda_away)
-        prob_reg = self._exact_score_probability_core(home_goals, away_goals, lambda_home_reg, lambda_away_reg, use_ensemble=True)
-        probs.append(prob_reg)
-        weights.append(0.10)
+            # Se Negative Binomial non usabile, non aggiungere (evita ridondanza)
+            pass
         
         # Normalizza pesi (se alcuni modelli sono disabilitati)
         total_weight = sum(weights)
         if total_weight > 0:
             weights = [w / total_weight for w in weights]
+        else:
+            # Fallback: usa solo metodo principale
+            return self._exact_score_probability_core(home_goals, away_goals, lambda_home, lambda_away, use_ensemble=False)
         
         # Media pesata ottimizzata
         ensemble_prob = sum(w * p for w, p in zip(weights, probs))
+        
+        # Verifica che ensemble abbia senso (non tutti i modelli identici)
+        if len(probs) > 1:
+            # Se tutti i modelli danno risultati molto simili, usa solo il migliore
+            max_diff = max(probs) - min(probs)
+            if max_diff < 0.001:  # Tutti i modelli danno stesso risultato
+                # Usa solo il modello principale (più pesato)
+                ensemble_prob = probs[weights.index(max(weights))]
         
         # Applica smoothing bayesiano finale
         avg_lambda = (lambda_home + lambda_away) / 2.0
