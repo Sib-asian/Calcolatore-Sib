@@ -240,7 +240,7 @@ class AdvancedProbabilityCalculator:
         Aggiustamento Dixon-Coles migliorato per correggere probabilità di 0-0 e 1-1.
         Questi risultati sono statisticamente più probabili del modello Poisson puro.
         
-        Formula migliorata:
+        Formula migliorata con correzione avanzata:
         tau(i, j, lambda_home, lambda_away) = 
             1 - lambda_home * lambda_away * rho se (i,j) = (0,0)
             1 + lambda_home * rho se (i,j) = (1,0)
@@ -248,8 +248,8 @@ class AdvancedProbabilityCalculator:
             1 - rho se (i,j) = (1,1)
             1 altrimenti
         
-        Usa rho dinamico basato sulle attese gol per maggiore precisione.
-            
+        Miglioramento: aggiustamento per lambda molto basse/alte per evitare tau negativi.
+        
         Args:
             home_goals: Gol casa
             away_goals: Gol trasferta
@@ -262,18 +262,23 @@ class AdvancedProbabilityCalculator:
         rho = self.get_dynamic_rho(lambda_home, lambda_away)
         
         if home_goals == 0 and away_goals == 0:
-            tau = 1 - lambda_home * lambda_away * rho
+            # Correzione per evitare tau negativo quando lambda sono molto alte
+            product = lambda_home * lambda_away * rho
+            tau = 1 - min(product, 0.95)  # Limita a max 0.95 per evitare tau negativo
         elif home_goals == 1 and away_goals == 0:
-            tau = 1 + lambda_home * rho
+            # Limita l'aumento per lambda molto alte
+            increase = lambda_home * rho
+            tau = 1 + min(increase, 0.5)  # Limita aumento a 0.5
         elif home_goals == 0 and away_goals == 1:
-            tau = 1 + lambda_away * rho
+            increase = lambda_away * rho
+            tau = 1 + min(increase, 0.5)
         elif home_goals == 1 and away_goals == 1:
-            tau = 1 - rho
+            tau = 1 - min(rho, 0.3)  # Limita riduzione a 0.3
         else:
             return 1.0
         
-        # Assicuriamo che tau sia sempre positivo
-        return max(0.01, tau)
+        # Assicuriamo che tau sia sempre positivo e ragionevole
+        return max(0.01, min(2.0, tau))  # Limita tau tra 0.01 e 2.0
     
     def poisson_probability(self, k: int, lambda_param: float) -> float:
         """
@@ -655,6 +660,178 @@ class AdvancedProbabilityCalculator:
             **ht_over_under
         }
     
+    def calculate_double_chance(self, lambda_home: float, lambda_away: float) -> Dict[str, float]:
+        """
+        Calcola probabilità Doppia Chance (1X, 12, X2).
+        
+        Doppia Chance:
+        - 1X: Casa vince o Pareggio (1 + X)
+        - 12: Casa o Trasferta vince (1 + 2, esclude pareggio)
+        - X2: Pareggio o Trasferta vince (X + 2)
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            
+        Returns:
+            Dict con probabilità 1X, 12, X2
+        """
+        probs_1x2 = self.calculate_1x2_probabilities(lambda_home, lambda_away)
+        
+        return {
+            '1X': probs_1x2['1'] + probs_1x2['X'],  # Casa o Pareggio
+            '12': probs_1x2['1'] + probs_1x2['2'],  # Casa o Trasferta
+            'X2': probs_1x2['X'] + probs_1x2['2']   # Pareggio o Trasferta
+        }
+    
+    def calculate_handicap_asiatico(self, lambda_home: float, lambda_away: float,
+                                    handicap_values: List[float] = None) -> Dict[str, float]:
+        """
+        Calcola probabilità Handicap Asiatico per vari valori.
+        
+        Handicap Asiatico: aggiunge/subtrae gol virtuali a una squadra.
+        Es. Handicap -0.5 casa: casa deve vincere di almeno 1 gol.
+        Es. Handicap +0.5 trasferta: trasferta vince o pareggia.
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            handicap_values: Lista di handicap (default: [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5])
+            
+        Returns:
+            Dict con probabilità per ogni handicap (casa favorita = negativo)
+        """
+        if handicap_values is None:
+            handicap_values = [-1.5, -1.0, -0.5, 0.0, 0.5, 1.0, 1.5]
+        
+        results = {}
+        max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        
+        for handicap in handicap_values:
+            prob_casa = 0.0
+            prob_trasferta = 0.0
+            
+            for home in range(max_goals + 1):
+                for away in range(max_goals + 1):
+                    prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
+                    
+                    # Applica handicap: aggiungi handicap a casa
+                    home_with_handicap = home + handicap
+                    
+                    if home_with_handicap > away:
+                        prob_casa += prob
+                    elif home_with_handicap < away:
+                        prob_trasferta += prob
+                    # Se pari, non aggiungiamo (handicap .5 o .0)
+            
+            # Normalizzazione
+            total = prob_casa + prob_trasferta
+            if total > 0.0001:
+                prob_casa /= total
+                prob_trasferta /= total
+            
+            results[f'AH {handicap:+.1f} Casa'] = prob_casa
+            results[f'AH {handicap:+.1f} Trasferta'] = prob_trasferta
+        
+        return results
+    
+    def calculate_exact_total_goals(self, lambda_home: float, lambda_away: float,
+                                    max_total: int = 6) -> Dict[str, float]:
+        """
+        Calcola probabilità per total gol esatto (0, 1, 2, 3, 4, 5, 6+).
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            max_total: Massimo total gol da calcolare individualmente
+            
+        Returns:
+            Dict con probabilità per ogni total gol esatto
+        """
+        results = {}
+        max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        
+        # Calcola probabilità per ogni total
+        for total_goals in range(max_total + 1):
+            prob = 0.0
+            for home in range(max_goals + 1):
+                for away in range(max_goals + 1):
+                    if home + away == total_goals:
+                        prob += self.exact_score_probability(home, away, lambda_home, lambda_away)
+            results[f'Esattamente {total_goals}'] = prob
+        
+        # Total 6+ (somma di tutti i totali >= 6)
+        prob_6plus = 0.0
+        for home in range(max_goals + 1):
+            for away in range(max_goals + 1):
+                if home + away >= 6:
+                    prob_6plus += self.exact_score_probability(home, away, lambda_home, lambda_away)
+        results['6+'] = prob_6plus
+        
+        return results
+    
+    def calculate_win_to_nil(self, lambda_home: float, lambda_away: float) -> Dict[str, float]:
+        """
+        Calcola probabilità Win to Nil (vittoria senza subire gol).
+        
+        - Casa Win to Nil: Casa vince e trasferta non segna (1-0, 2-0, 3-0, ...)
+        - Trasferta Win to Nil: Trasferta vince e casa non segna (0-1, 0-2, 0-3, ...)
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            
+        Returns:
+            Dict con probabilità Win to Nil per casa e trasferta
+        """
+        prob_casa_wtn = 0.0
+        prob_trasferta_wtn = 0.0
+        
+        max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        
+        for home in range(1, max_goals + 1):  # Casa deve segnare almeno 1
+            prob = self.exact_score_probability(home, 0, lambda_home, lambda_away)
+            prob_casa_wtn += prob
+        
+        for away in range(1, max_goals + 1):  # Trasferta deve segnare almeno 1
+            prob = self.exact_score_probability(0, away, lambda_home, lambda_away)
+            prob_trasferta_wtn += prob
+        
+        return {
+            'Casa Win to Nil': prob_casa_wtn,
+            'Trasferta Win to Nil': prob_trasferta_wtn
+        }
+    
+    def calculate_both_teams_to_score_exact(self, lambda_home: float, lambda_away: float) -> Dict[str, float]:
+        """
+        Calcola probabilità per "Entrambe segnano esattamente X gol" (variante GG).
+        
+        Args:
+            lambda_home: Attesa gol casa
+            lambda_away: Attesa gol trasferta
+            
+        Returns:
+            Dict con probabilità per vari scenari
+        """
+        max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        
+        # Entrambe segnano almeno 1
+        prob_both_score = 0.0
+        for home in range(1, max_goals + 1):
+            for away in range(1, max_goals + 1):
+                prob_both_score += self.exact_score_probability(home, away, lambda_home, lambda_away)
+        
+        # Entrambe segnano almeno 2
+        prob_both_score_2plus = 0.0
+        for home in range(2, max_goals + 1):
+            for away in range(2, max_goals + 1):
+                prob_both_score_2plus += self.exact_score_probability(home, away, lambda_home, lambda_away)
+        
+        return {
+            'Entrambe segnano (GG)': prob_both_score,
+            'Entrambe segnano almeno 2': prob_both_score_2plus
+        }
+    
     def calculate_exact_scores(self, lambda_home: float, lambda_away: float,
                               max_goals: int = None) -> Dict[str, float]:
         """
@@ -732,6 +909,11 @@ class AdvancedProbabilityCalculator:
             'Over_Under': self.calculate_over_under_probabilities(lambda_home_opening, lambda_away_opening),
             'HT': self.calculate_ht_probabilities(lambda_home_opening, lambda_away_opening),
             'Exact_Scores': self.calculate_exact_scores(lambda_home_opening, lambda_away_opening),
+            'Double_Chance': self.calculate_double_chance(lambda_home_opening, lambda_away_opening),
+            'Handicap_Asiatico': self.calculate_handicap_asiatico(lambda_home_opening, lambda_away_opening),
+            'Exact_Total': self.calculate_exact_total_goals(lambda_home_opening, lambda_away_opening),
+            'Win_to_Nil': self.calculate_win_to_nil(lambda_home_opening, lambda_away_opening),
+            'BTTS_Exact': self.calculate_both_teams_to_score_exact(lambda_home_opening, lambda_away_opening),
             'Expected_Goals': {
                 'Home': lambda_home_opening,
                 'Away': lambda_away_opening
@@ -745,6 +927,11 @@ class AdvancedProbabilityCalculator:
             'Over_Under': self.calculate_over_under_probabilities(lambda_home_current, lambda_away_current),
             'HT': self.calculate_ht_probabilities(lambda_home_current, lambda_away_current),
             'Exact_Scores': self.calculate_exact_scores(lambda_home_current, lambda_away_current),
+            'Double_Chance': self.calculate_double_chance(lambda_home_current, lambda_away_current),
+            'Handicap_Asiatico': self.calculate_handicap_asiatico(lambda_home_current, lambda_away_current),
+            'Exact_Total': self.calculate_exact_total_goals(lambda_home_current, lambda_away_current),
+            'Win_to_Nil': self.calculate_win_to_nil(lambda_home_current, lambda_away_current),
+            'BTTS_Exact': self.calculate_both_teams_to_score_exact(lambda_home_current, lambda_away_current),
             'Expected_Goals': {
                 'Home': lambda_home_current,
                 'Away': lambda_away_current

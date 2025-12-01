@@ -86,9 +86,10 @@ if st.session_state.get('calculated', False):
     results = st.session_state['results']
     
     # Tabs per organizzare i risultati
-    tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
         "📈 Riepilogo", "1️⃣ 1X2", "⚽ GG/NG & Over/Under", 
-        "⏱️ Primo Tempo", "🎯 Risultati Esatti", "📊 Movimento Mercato"
+        "⏱️ Primo Tempo", "🎯 Risultati Esatti", "🔄 Doppia Chance & Handicap",
+        "🎲 Total Esatto & Win to Nil", "📊 Movimento Mercato"
     ])
     
     with tab1:
@@ -413,6 +414,124 @@ if st.session_state.get('calculated', False):
             st.dataframe(df_matrix_current, use_container_width=True)
     
     with tab6:
+        st.header("🔄 Doppia Chance & Handicap Asiatico")
+        
+        opening_dc = results['Opening']['Double_Chance']
+        current_dc = results['Current']['Double_Chance']
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📊 Doppia Chance - Apertura")
+            df_dc_opening = pd.DataFrame({
+                'Mercato': ['1X (Casa o Pareggio)', '12 (Casa o Trasferta)', 'X2 (Pareggio o Trasferta)'],
+                'Probabilità': [opening_dc['1X'], opening_dc['12'], opening_dc['X2']],
+                'Percentuale': [
+                    f"{opening_dc['1X']*100:.2f}%",
+                    f"{opening_dc['12']*100:.2f}%",
+                    f"{opening_dc['X2']*100:.2f}%"
+                ],
+                'Quote Implicite': [
+                    f"{1/opening_dc['1X']:.2f}" if opening_dc['1X'] > 0 else "N/A",
+                    f"{1/opening_dc['12']:.2f}" if opening_dc['12'] > 0 else "N/A",
+                    f"{1/opening_dc['X2']:.2f}" if opening_dc['X2'] > 0 else "N/A"
+                ]
+            })
+            st.dataframe(df_dc_opening, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.subheader("📊 Doppia Chance - Corrente")
+            df_dc_current = pd.DataFrame({
+                'Mercato': ['1X (Casa o Pareggio)', '12 (Casa o Trasferta)', 'X2 (Pareggio o Trasferta)'],
+                'Probabilità': [current_dc['1X'], current_dc['12'], current_dc['X2']],
+                'Percentuale': [
+                    f"{current_dc['1X']*100:.2f}%",
+                    f"{current_dc['12']*100:.2f}%",
+                    f"{current_dc['X2']*100:.2f}%"
+                ],
+                'Quote Implicite': [
+                    f"{1/current_dc['1X']:.2f}" if current_dc['1X'] > 0 else "N/A",
+                    f"{1/current_dc['12']:.2f}" if current_dc['12'] > 0 else "N/A",
+                    f"{1/current_dc['X2']:.2f}" if current_dc['X2'] > 0 else "N/A"
+                ]
+            })
+            st.dataframe(df_dc_current, use_container_width=True, hide_index=True)
+        
+        st.subheader("📊 Handicap Asiatico")
+        opening_ah = results['Opening']['Handicap_Asiatico']
+        current_ah = results['Current']['Handicap_Asiatico']
+        
+        # Mostra solo alcuni handicap principali
+        ah_keys = [k for k in opening_ah.keys() if 'Casa' in k and any(h in k for h in ['-1.5', '-0.5', '0.0', '0.5', '1.5'])]
+        
+        ah_data = []
+        for key in sorted(ah_keys, key=lambda x: float(x.split()[1])):
+            handicap = key.split()[1]
+            ah_data.append({
+                'Handicap': handicap,
+                'Prob. Casa (Apertura)': f"{opening_ah[key]*100:.2f}%",
+                'Prob. Casa (Corrente)': f"{current_ah[key]*100:.2f}%",
+                'Prob. Trasferta (Apertura)': f"{opening_ah[key.replace('Casa', 'Trasferta')]*100:.2f}%",
+                'Prob. Trasferta (Corrente)': f"{current_ah[key.replace('Casa', 'Trasferta')]*100:.2f}%"
+            })
+        
+        df_ah = pd.DataFrame(ah_data)
+        st.dataframe(df_ah, use_container_width=True, hide_index=True)
+    
+    with tab7:
+        st.header("🎲 Total Esatto & Win to Nil")
+        
+        opening_et = results['Opening']['Exact_Total']
+        current_et = results['Current']['Exact_Total']
+        opening_wtn = results['Opening']['Win_to_Nil']
+        current_wtn = results['Current']['Win_to_Nil']
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.subheader("📊 Total Gol Esatto - Apertura")
+            et_data = []
+            for key in sorted(opening_et.keys(), key=lambda x: int(x.split()[-1]) if x.split()[-1].isdigit() else 999):
+                et_data.append({
+                    'Total': key.replace('Esattamente ', ''),
+                    'Probabilità': f"{opening_et[key]*100:.2f}%",
+                    'Quote': f"{1/opening_et[key]:.2f}" if opening_et[key] > 0 else "N/A"
+                })
+            df_et_opening = pd.DataFrame(et_data)
+            st.dataframe(df_et_opening, use_container_width=True, hide_index=True)
+        
+        with col2:
+            st.subheader("📊 Total Gol Esatto - Corrente")
+            et_data = []
+            for key in sorted(current_et.keys(), key=lambda x: int(x.split()[-1]) if x.split()[-1].isdigit() else 999):
+                et_data.append({
+                    'Total': key.replace('Esattamente ', ''),
+                    'Probabilità': f"{current_et[key]*100:.2f}%",
+                    'Quote': f"{1/current_et[key]:.2f}" if current_et[key] > 0 else "N/A"
+                })
+            df_et_current = pd.DataFrame(et_data)
+            st.dataframe(df_et_current, use_container_width=True, hide_index=True)
+        
+        st.subheader("🏆 Win to Nil")
+        wtn_data = {
+            'Mercato': ['Casa Win to Nil', 'Trasferta Win to Nil'],
+            'Prob. Apertura': [
+                f"{opening_wtn['Casa Win to Nil']*100:.2f}%",
+                f"{opening_wtn['Trasferta Win to Nil']*100:.2f}%"
+            ],
+            'Prob. Corrente': [
+                f"{current_wtn['Casa Win to Nil']*100:.2f}%",
+                f"{current_wtn['Trasferta Win to Nil']*100:.2f}%"
+            ],
+            'Quote Apertura': [
+                f"{1/opening_wtn['Casa Win to Nil']:.2f}" if opening_wtn['Casa Win to Nil'] > 0 else "N/A",
+                f"{1/opening_wtn['Trasferta Win to Nil']:.2f}" if opening_wtn['Trasferta Win to Nil'] > 0 else "N/A"
+            ]
+        }
+        df_wtn = pd.DataFrame(wtn_data)
+        st.dataframe(df_wtn, use_container_width=True, hide_index=True)
+    
+    with tab8:
         st.header("📊 Analisi Movimento Mercato")
         
         movement = results['Movement']
