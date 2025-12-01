@@ -1631,8 +1631,15 @@ class AdvancedProbabilityCalculator:
             # Fallback: usa solo metodo principale
             return self._exact_score_probability_core(home_goals, away_goals, lambda_home, lambda_away, use_ensemble=False)
         
-        # Media pesata ottimizzata
-        ensemble_prob = sum(w * p for w, p in zip(weights, probs))
+        # PRECISIONE: usa Kahan Summation per media pesata ensemble
+        # Media pesata ottimizzata con Kahan Summation per ridurre errori
+        ensemble_prob = 0.0
+        ensemble_error = 0.0
+        for w, p in zip(weights, probs):
+            y = (w * p) - ensemble_error
+            t = ensemble_prob + y
+            ensemble_error = (t - ensemble_prob) - y
+            ensemble_prob = t
         
         # Verifica che ensemble abbia senso (non tutti i modelli identici)
         if len(probs) > 1:
@@ -1709,9 +1716,14 @@ class AdvancedProbabilityCalculator:
         Returns:
             Dict con probabilità 1, X, 2 (normalizzate)
         """
+        # PRECISIONE: usa Kahan Summation per ridurre errori di arrotondamento
+        # Kahan Summation: accumula errori di arrotondamento e li corregge
         prob_1 = 0.0  # Casa vince
         prob_X = 0.0  # Pareggio
         prob_2 = 0.0  # Trasferta vince
+        error_1 = 0.0  # Errore accumulato per prob_1
+        error_X = 0.0  # Errore accumulato per prob_X
+        error_2 = 0.0  # Errore accumulato per prob_2
         
         # Limite gol dinamico per ottimizzazione
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
@@ -1733,12 +1745,25 @@ class AdvancedProbabilityCalculator:
                 
                 prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                 
+                # PRECISIONE: Kahan Summation per ridurre errori di arrotondamento
                 if home > away:
-                    prob_1 += prob
+                    # Kahan Summation per prob_1
+                    y = prob - error_1
+                    t = prob_1 + y
+                    error_1 = (t - prob_1) - y
+                    prob_1 = t
                 elif home == away:
-                    prob_X += prob
+                    # Kahan Summation per prob_X
+                    y = prob - error_X
+                    t = prob_X + y
+                    error_X = (t - prob_X) - y
+                    prob_X = t
                 else:
-                    prob_2 += prob
+                    # Kahan Summation per prob_2
+                    y = prob - error_2
+                    t = prob_2 + y
+                    error_2 = (t - prob_2) - y
+                    prob_2 = t
         
         # Normalizzazione robusta (assicura che somma = 1.0)
         # PRECISIONE: normalizzazione migliorata con correzione esplicita per somma esatta
@@ -1790,8 +1815,11 @@ class AdvancedProbabilityCalculator:
         Returns:
             Dict con probabilità GG e NG (normalizzate)
         """
+        # PRECISIONE: usa Kahan Summation per ridurre errori di arrotondamento
         prob_gg = 0.0  # Entrambe segnano
         prob_ng = 0.0  # Almeno una non segna
+        error_gg = 0.0  # Errore accumulato per prob_gg
+        error_ng = 0.0  # Errore accumulato per prob_ng
         
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
@@ -1799,10 +1827,17 @@ class AdvancedProbabilityCalculator:
             for away in range(max_goals + 1):
                 prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                 
+                # PRECISIONE: Kahan Summation
                 if home > 0 and away > 0:
-                    prob_gg += prob
+                    y = prob - error_gg
+                    t = prob_gg + y
+                    error_gg = (t - prob_gg) - y
+                    prob_gg = t
                 else:
-                    prob_ng += prob
+                    y = prob - error_ng
+                    t = prob_ng + y
+                    error_ng = (t - prob_ng) - y
+                    prob_ng = t
         
         # Normalizzazione (ottimizzata)
         # PRECISIONE: normalizzazione migliorata con correzione esplicita
@@ -1851,18 +1886,28 @@ class AdvancedProbabilityCalculator:
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
         
         for threshold in thresholds:
+            # PRECISIONE: usa Kahan Summation per ridurre errori di arrotondamento
             prob_over = 0.0
             prob_under = 0.0
+            error_over = 0.0  # Errore accumulato per prob_over
+            error_under = 0.0  # Errore accumulato per prob_under
             
             for home in range(max_goals + 1):
                 for away in range(max_goals + 1):
                     total_goals = home + away
                     prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                     
+                    # PRECISIONE: Kahan Summation
                     if total_goals > threshold:
-                        prob_over += prob
+                        y = prob - error_over
+                        t = prob_over + y
+                        error_over = (t - prob_over) - y
+                        prob_over = t
                     elif total_goals < threshold:
-                        prob_under += prob
+                        y = prob - error_under
+                        t = prob_under + y
+                        error_under = (t - prob_under) - y
+                        prob_under = t
                     # Se total_goals == threshold (solo per interi), non aggiungiamo nulla
                     # perché Over/Under sono sempre con .5
             
