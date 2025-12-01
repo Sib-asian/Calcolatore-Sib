@@ -31,6 +31,11 @@ class AdvancedProbabilityCalculator:
         - lambda_home = (total + spread) / 2
         - lambda_away = (total - spread) / 2
         
+        NOTA: Se spread è negativo (casa favorita), lambda_home deve essere MAGGIORE.
+        Quindi la formula corretta è:
+        - lambda_home = (total - spread) / 2  (se spread negativo, questo aumenta)
+        - lambda_away = (total + spread) / 2  (se spread negativo, questo diminuisce)
+        
         Args:
             spread: Spread (negativo = casa favorita, positivo = trasferta favorita)
             total: Total atteso (somma gol attesi)
@@ -38,8 +43,8 @@ class AdvancedProbabilityCalculator:
         Returns:
             Tuple[lambda_home, lambda_away]
         """
-        lambda_home = (total + spread) / 2.0
-        lambda_away = (total - spread) / 2.0
+        lambda_home = (total - spread) / 2.0
+        lambda_away = (total + spread) / 2.0
         
         # Assicuriamo che le lambda siano sempre positive
         lambda_home = max(0.01, lambda_home)
