@@ -267,8 +267,9 @@ class AdvancedProbabilityCalculator:
             Limite massimo gol da considerare
         """
         # Cache lookup per ottimizzazione
+        # PRECISIONE: aumentata precisione cache key da 2 a 4 decimali per maggiore accuratezza
         if self._cache_enabled:
-            cache_key = (round(lambda_home, 2), round(lambda_away, 2))
+            cache_key = (round(lambda_home, 4), round(lambda_away, 4))
             if cache_key in self._cache_max_goals:
                 return self._cache_max_goals[cache_key]
         
@@ -1740,7 +1741,7 @@ class AdvancedProbabilityCalculator:
                     prob_2 += prob
         
         # Normalizzazione robusta (assicura che somma = 1.0)
-        # Ottimizzazione: calcola total una volta sola
+        # PRECISIONE: normalizzazione migliorata con correzione esplicita per somma esatta
         total = prob_1 + prob_X + prob_2
         if total > 0.0001:  # Evita divisione per zero
             # Ottimizzazione: calcola reciproco una volta sola invece di 3 divisioni
@@ -1748,6 +1749,22 @@ class AdvancedProbabilityCalculator:
             prob_1 *= inv_total
             prob_X *= inv_total
             prob_2 *= inv_total
+            
+            # PRECISIONE: correzione esplicita per assicurare somma esattamente 1.0
+            # (compensa piccoli errori di arrotondamento)
+            actual_total = prob_1 + prob_X + prob_2
+            if abs(actual_total - 1.0) > 1e-10:
+                # Distribuisci differenza proporzionalmente
+                diff = 1.0 - actual_total
+                prob_1 += diff * (prob_1 / actual_total) if actual_total > 0 else diff / 3.0
+                prob_X += diff * (prob_X / actual_total) if actual_total > 0 else diff / 3.0
+                prob_2 += diff * (prob_2 / actual_total) if actual_total > 0 else diff / 3.0
+                # Rinomali per sicurezza
+                final_total = prob_1 + prob_X + prob_2
+                if final_total > 0:
+                    prob_1 /= final_total
+                    prob_X /= final_total
+                    prob_2 /= final_total
         else:
             # Fallback se calcoli falliscono (molto raro)
             prob_1 = 0.33
@@ -1788,11 +1805,24 @@ class AdvancedProbabilityCalculator:
                     prob_ng += prob
         
         # Normalizzazione (ottimizzata)
+        # PRECISIONE: normalizzazione migliorata con correzione esplicita
         total = prob_gg + prob_ng
         if total > 0.0001:
             inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
             prob_gg *= inv_total
             prob_ng *= inv_total
+            
+            # PRECISIONE: correzione esplicita per somma esattamente 1.0
+            actual_total = prob_gg + prob_ng
+            if abs(actual_total - 1.0) > 1e-10:
+                diff = 1.0 - actual_total
+                prob_gg += diff * 0.5
+                prob_ng += diff * 0.5
+                # Rinomali
+                final_total = prob_gg + prob_ng
+                if final_total > 0:
+                    prob_gg /= final_total
+                    prob_ng /= final_total
         
         return {
             'GG': prob_gg,
@@ -1837,11 +1867,24 @@ class AdvancedProbabilityCalculator:
                     # perché Over/Under sono sempre con .5
             
             # Normalizzazione per ogni soglia (ottimizzata)
+            # PRECISIONE: normalizzazione migliorata con correzione esplicita
             total = prob_over + prob_under
             if total > 0.0001:
                 inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
                 prob_over *= inv_total
                 prob_under *= inv_total
+                
+                # PRECISIONE: correzione esplicita per somma esattamente 1.0
+                actual_total = prob_over + prob_under
+                if abs(actual_total - 1.0) > 1e-10:
+                    diff = 1.0 - actual_total
+                    prob_over += diff * 0.5
+                    prob_under += diff * 0.5
+                    # Rinomali
+                    final_total = prob_over + prob_under
+                    if final_total > 0:
+                        prob_over /= final_total
+                        prob_under /= final_total
             
             results[f'Over {threshold}'] = prob_over
             results[f'Under {threshold}'] = prob_under
@@ -2044,11 +2087,24 @@ class AdvancedProbabilityCalculator:
                     # Se pari, non aggiungiamo (handicap .5 o .0)
             
             # Normalizzazione (ottimizzata)
+            # PRECISIONE: normalizzazione migliorata con correzione esplicita
             total = prob_casa + prob_trasferta
             if total > 0.0001:
                 inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
                 prob_casa *= inv_total
                 prob_trasferta *= inv_total
+                
+                # PRECISIONE: correzione esplicita per somma esattamente 1.0
+                actual_total = prob_casa + prob_trasferta
+                if abs(actual_total - 1.0) > 1e-10:
+                    diff = 1.0 - actual_total
+                    prob_casa += diff * 0.5
+                    prob_trasferta += diff * 0.5
+                    # Rinomali
+                    final_total = prob_casa + prob_trasferta
+                    if final_total > 0:
+                        prob_casa /= final_total
+                        prob_trasferta /= final_total
             
             results[f'AH {handicap:+.1f} Casa'] = prob_casa
             results[f'AH {handicap:+.1f} Trasferta'] = prob_trasferta
