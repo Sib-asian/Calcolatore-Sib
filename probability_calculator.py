@@ -500,11 +500,13 @@ class AdvancedProbabilityCalculator:
         if lambda_home > 3.0:
             # Correzione aumenta linearmente da 1.0 a 0.99
             excess = lambda_home - 3.0
-            correction_home = 1.0 - 0.01 * min(excess / 2.0, 1.0)  # Max -1% per lambda > 5.0
+            # PRECISIONE: usa moltiplicazione invece di divisione
+            correction_home = 1.0 - 0.01 * min(excess * 0.5, 1.0)  # Max -1% per lambda > 5.0
             lambda_home *= correction_home
         if lambda_away > 3.0:
             excess = lambda_away - 3.0
-            correction_away = 1.0 - 0.01 * min(excess / 2.0, 1.0)
+            # PRECISIONE: usa moltiplicazione invece di divisione
+            correction_away = 1.0 - 0.01 * min(excess * 0.5, 1.0)
             lambda_away *= correction_away
         
         # Pattern 3: Match molto sbilanciati (ratio > 2.5)
@@ -574,8 +576,9 @@ class AdvancedProbabilityCalculator:
             return 0.0
         
         # Cache lookup per ottimizzazione
+        # PRECISIONE: aumentata precisione cache da 6 a 8 decimali per consistenza
         if self._cache_enabled:
-            cache_key = (k, round(lambda_param, 6))  # Arrotonda per cache
+            cache_key = (k, round(lambda_param, 8))  # Arrotonda per cache
             if cache_key in self._cache_poisson:
                 return self._cache_poisson[cache_key]
         
@@ -589,14 +592,16 @@ class AdvancedProbabilityCalculator:
             else:
                 # Per k > 1 con lambda molto piccola, probabilità è trascurabile
                 # ma calcoliamo comunque per precisione
+                # PRECISIONE: usa math.lgamma invece di sum(math.log) per maggiore precisione
                 log_prob = k * math.log(lambda_param) - lambda_param
-                for i in range(1, k + 1):
-                    log_prob -= math.log(i)
+                if k > 0:
+                    log_prob -= math.lgamma(k + 1)  # math.lgamma(k+1) = log(k!)
                 result = math.exp(log_prob)
             
             # Cache result
+            # PRECISIONE: aumentata precisione cache da 6 a 8 decimali per consistenza
             if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
-                self._cache_poisson[(k, round(lambda_param, 6))] = result
+                self._cache_poisson[(k, round(lambda_param, 8))] = result
             return result
         
         # Algoritmo avanzato per precisione massima
@@ -617,8 +622,9 @@ class AdvancedProbabilityCalculator:
             result = max(0.0, min(1.0, result))
             
             # Cache result
+            # PRECISIONE: aumentata precisione cache da 6 a 8 decimali per consistenza
             if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
-                self._cache_poisson[(k, round(lambda_param, 6))] = result
+                self._cache_poisson[(k, round(lambda_param, 8))] = result
             return result
         
         # Algoritmo standard (più veloce)
@@ -1301,7 +1307,8 @@ class AdvancedProbabilityCalculator:
         # Correlazione più alta per match equilibrati e risultati estremi
         if abs(home_goals - away_goals) <= 1 and (home_goals == 0 or home_goals == away_goals):
             # Risultati equilibrati o 0-0: correlazione più alta
-            rho = 0.15 + 0.05 * math.exp(-avg_lambda / 2.0)
+            # PRECISIONE: usa moltiplicazione invece di divisione
+            rho = 0.15 + 0.05 * math.exp(-avg_lambda * 0.5)
         elif 0.8 < ratio < 1.2:
             # Match equilibrato: correlazione moderata
             rho = 0.12
@@ -1367,7 +1374,8 @@ class AdvancedProbabilityCalculator:
         # (overdispersion più pronunciata)
         var_ratio_home = var_home_conditional / max(var_home_theoretical, 0.1)
         var_ratio_away = var_away_conditional / max(var_away_theoretical, 0.1)
-        var_ratio_avg = (var_ratio_home + var_ratio_away) / 2.0
+        # PRECISIONE: usa moltiplicazione invece di divisione
+        var_ratio_avg = (var_ratio_home + var_ratio_away) * 0.5
         
         # Correzione: se varianza condizionale è alta, aumenta probabilità
         correction = 1.0 + (var_ratio_avg - 1.0) * 0.05  # Max 5% correzione
@@ -1814,10 +1822,19 @@ class AdvancedProbabilityCalculator:
             actual_total = prob_1 + prob_X + prob_2
             if abs(actual_total - 1.0) > 1e-10:
                 # Distribuisci differenza proporzionalmente
+                # PRECISIONE: pre-calcola reciproci per evitare divisioni multiple
                 diff = 1.0 - actual_total
-                prob_1 += diff * (prob_1 / actual_total) if actual_total > 0 else diff / 3.0
-                prob_X += diff * (prob_X / actual_total) if actual_total > 0 else diff / 3.0
-                prob_2 += diff * (prob_2 / actual_total) if actual_total > 0 else diff / 3.0
+                if actual_total > 0:
+                    inv_actual_total = 1.0 / actual_total  # Pre-calcola reciproco
+                    prob_1 += diff * (prob_1 * inv_actual_total)
+                    prob_X += diff * (prob_X * inv_actual_total)
+                    prob_2 += diff * (prob_2 * inv_actual_total)
+                else:
+                    # PRECISIONE: usa moltiplicazione invece di divisione
+                    diff_third = diff * (1.0 / 3.0)  # Pre-calcola diff/3
+                    prob_1 += diff_third
+                    prob_X += diff_third
+                    prob_2 += diff_third
                 # Rinomali per sicurezza
                 final_total = prob_1 + prob_X + prob_2
                 if final_total > 0:
