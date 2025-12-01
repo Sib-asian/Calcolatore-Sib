@@ -55,13 +55,38 @@ class AdvancedProbabilityCalculator:
         lambda_home = (total - spread) / 2.0
         lambda_away = (total + spread) / 2.0
         
+        # Verifica coerenza: total deve essere lambda_home + lambda_away
+        # (verifica matematica per sicurezza)
+        calculated_total = lambda_home + lambda_away
+        if abs(calculated_total - total) > 0.001:
+            # Se c'è discrepanza (molto raro), ri-normalizza
+            scale_factor = total / calculated_total if calculated_total > 0 else 1.0
+            lambda_home *= scale_factor
+            lambda_away *= scale_factor
+        
         # Smoothing per lambda molto basse (evita problemi numerici)
+        # Usa 0.05 invece di 0.01 per maggiore stabilità
         lambda_home = max(0.05, lambda_home)
         lambda_away = max(0.05, lambda_away)
         
         # Limite superiore realistico (match molto offensivi raramente superano 4.5 gol attesi per squadra)
-        lambda_home = min(4.5, lambda_home)
-        lambda_away = min(4.5, lambda_away)
+        # Se viene applicato il limite, ri-normalizza per mantenere il total corretto
+        if lambda_home > 4.5 or lambda_away > 4.5:
+            # Mantieni il rapporto ma limita entrambi
+            if lambda_home > 4.5:
+                lambda_home = 4.5
+            if lambda_away > 4.5:
+                lambda_away = 4.5
+            # Ri-normalizza per mantenere il total (se possibile)
+            current_total = lambda_home + lambda_away
+            if current_total > 0 and total > 0:
+                # Mantieni il rapporto ma scala al total originale
+                scale = total / current_total
+                lambda_home *= scale
+                lambda_away *= scale
+                # Ri-applica limite se necessario
+                lambda_home = min(4.5, lambda_home)
+                lambda_away = min(4.5, lambda_away)
         
         return lambda_home, lambda_away
     
