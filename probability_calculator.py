@@ -2254,13 +2254,13 @@ class AdvancedProbabilityCalculator:
                         prob = t
             results[f'Esattamente {total_goals}'] = prob
         
-        # Total 6+ (somma di tutti i totali >= 6)
+        # Total 6+ (somma di tutti i totali > 6, escluso 6 che è già calcolato)
         # PRECISIONE: usa Kahan Summation
         prob_6plus = 0.0
         error_6plus = 0.0
         for home in range(max_goals + 1):
             for away in range(max_goals + 1):
-                if home + away >= 6:
+                if home + away > 6:  # CORRETTO: > 6 invece di >= 6 (esclude il 6)
                     p = self.exact_score_probability(home, away, lambda_home, lambda_away)
                     y = p - error_6plus
                     t = prob_6plus + y

@@ -464,15 +464,27 @@ if st.session_state.get('calculated', False):
         # Mostra solo alcuni handicap principali
         ah_keys = [k for k in opening_ah.keys() if 'Casa' in k and any(h in k for h in ['-1.5', '-0.5', '0.0', '0.5', '1.5'])]
         
+        # Ordina correttamente gli handicap (gestisce anche valori negativi)
+        def extract_handicap(key):
+            try:
+                # Formato: "AH -1.5 Casa" -> estrai "-1.5"
+                parts = key.split()
+                if len(parts) >= 2:
+                    return float(parts[1])
+            except:
+                return 0.0
+            return 0.0
+        
         ah_data = []
-        for key in sorted(ah_keys, key=lambda x: float(x.split()[1])):
-            handicap = key.split()[1]
+        for key in sorted(ah_keys, key=extract_handicap):
+            handicap = key.split()[1] if len(key.split()) >= 2 else key
+            trasferta_key = key.replace('Casa', 'Trasferta')
             ah_data.append({
                 'Handicap': handicap,
                 'Prob. Casa (Apertura)': f"{opening_ah[key]*100:.2f}%",
                 'Prob. Casa (Corrente)': f"{current_ah[key]*100:.2f}%",
-                'Prob. Trasferta (Apertura)': f"{opening_ah[key.replace('Casa', 'Trasferta')]*100:.2f}%",
-                'Prob. Trasferta (Corrente)': f"{current_ah[key.replace('Casa', 'Trasferta')]*100:.2f}%"
+                'Prob. Trasferta (Apertura)': f"{opening_ah.get(trasferta_key, 0)*100:.2f}%",
+                'Prob. Trasferta (Corrente)': f"{current_ah.get(trasferta_key, 0)*100:.2f}%"
             })
         
         df_ah = pd.DataFrame(ah_data)
