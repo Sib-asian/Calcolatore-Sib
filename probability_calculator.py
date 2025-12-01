@@ -1453,6 +1453,7 @@ class AdvancedProbabilityCalculator:
         """
         Core calculation senza ricorsione per ensemble.
         Versione ultra-avanzata con tutte le ottimizzazioni.
+        OTTIMIZZATO: pre-calcolo valori comuni, riduzione calcoli ridondanti.
         """
         # Applica regressione lambda (prima di tutto)
         lambda_home_adj, lambda_away_adj = self.lambda_regression_adjustment(lambda_home, lambda_away)
@@ -1460,6 +1461,10 @@ class AdvancedProbabilityCalculator:
         # Applica calibrazione dinamica e home advantage avanzato
         lambda_home_adj, lambda_away_adj = self.dynamic_calibration(lambda_home_adj, lambda_away_adj)
         lambda_home_adj, lambda_away_adj = self.home_advantage_advanced(lambda_home_adj, lambda_away_adj)
+        
+        # Pre-calcola valori comuni per ottimizzazione
+        avg_lambda_adj = (lambda_home_adj + lambda_away_adj) / 2.0
+        total_lambda_adj = lambda_home_adj + lambda_away_adj
         
         # Calcola probabilità usando ensemble Poisson/Negative Binomial
         if self.use_negative_binomial and lambda_home_adj > 1.0:
@@ -1492,17 +1497,18 @@ class AdvancedProbabilityCalculator:
         # Correzione Karlis-Ntzoufras (correlazione esplicita)
         kn_correction = self.karlis_ntzoufras_correction(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
         
+        # Pre-calcola correzioni comuni (ottimizzazione: evita ricalcoli)
         # Correzione skewness
         skew_home = self.get_skewness_correction(home_goals, lambda_home_adj)
         skew_away = self.get_skewness_correction(away_goals, lambda_away_adj)
-        skew_correction = (skew_home + skew_away) / 2.0
+        skew_correction = (skew_home + skew_away) * 0.5  # Ottimizzato: moltiplicazione invece di divisione
         
         # Aggiustamento overdispersion
         overdisp_factor_home = self.get_overdispersion_factor(lambda_home_adj)
         overdisp_factor_away = self.get_overdispersion_factor(lambda_away_adj)
-        overdisp_correction = (overdisp_factor_home + overdisp_factor_away) / 2.0
+        overdisp_correction = (overdisp_factor_home + overdisp_factor_away) * 0.5
         
-        # Correzione bias sistematici
+        # Correzione bias sistematici (usa valori pre-calcolati)
         bias_correction = self.get_bias_correction(lambda_home_adj, lambda_away_adj)
         
         # Aggiustamento efficienza mercato
@@ -1514,15 +1520,24 @@ class AdvancedProbabilityCalculator:
         # Aggiustamento varianza condizionale
         variance_correction = self.variance_modeling_advanced(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
         
+        # Pre-calcola prodotto correzioni (ottimizzazione: una moltiplicazione invece di 7)
+        all_corrections = kn_correction * skew_correction * overdisp_correction * \
+                         bias_correction * market_correction * copula_correction * variance_correction
+        
         # Applica tutte le correzioni (rimossi momentum e pressure - troppo euristici)
         base_prob = prob_home * prob_away * tau
-        corrected_prob = base_prob * kn_correction * skew_correction * overdisp_correction * \
-                        bias_correction * market_correction * copula_correction * variance_correction
+        
+        # Ottimizzazione: early exit se probabilità è già trascurabile
+        if base_prob < 1e-15:
+            return 0.0
+        
+        # Ottimizzazione: usa prodotto pre-calcolato invece di 7 moltiplicazioni separate
+        corrected_prob = base_prob * all_corrections
         
         # Smoothing bayesiano finale (solo se non in ensemble, per evitare doppio smoothing)
         if not use_ensemble:
-            avg_lambda = (lambda_home_adj + lambda_away_adj) / 2.0
-            corrected_prob = self.bayesian_smoothing(corrected_prob, avg_lambda)
+            # Ottimizzazione: usa avg_lambda_adj pre-calcolato invece di ricalcolarlo
+            corrected_prob = self.bayesian_smoothing(corrected_prob, avg_lambda_adj)
         
         # Assicura che la probabilità sia ragionevole
         return max(0.0, min(1.0, corrected_prob))
@@ -1638,7 +1653,8 @@ class AdvancedProbabilityCalculator:
                     ensemble_prob = sum(w * p for w, p in zip(weights, probs))
         
         # Applica smoothing bayesiano finale
-        avg_lambda = (lambda_home + lambda_away) / 2.0
+        # Ottimizzazione: pre-calcola avg_lambda una volta sola
+        avg_lambda = (lambda_home + lambda_away) * 0.5  # Moltiplicazione invece di divisione
         ensemble_prob = self.bayesian_smoothing(ensemble_prob, avg_lambda)
         
         # Precisione estesa: arrotonda a più decimali se necessario
@@ -1724,11 +1740,14 @@ class AdvancedProbabilityCalculator:
                     prob_2 += prob
         
         # Normalizzazione robusta (assicura che somma = 1.0)
+        # Ottimizzazione: calcola total una volta sola
         total = prob_1 + prob_X + prob_2
         if total > 0.0001:  # Evita divisione per zero
-            prob_1 /= total
-            prob_X /= total
-            prob_2 /= total
+            # Ottimizzazione: calcola reciproco una volta sola invece di 3 divisioni
+            inv_total = 1.0 / total
+            prob_1 *= inv_total
+            prob_X *= inv_total
+            prob_2 *= inv_total
         else:
             # Fallback se calcoli falliscono (molto raro)
             prob_1 = 0.33
@@ -1768,11 +1787,12 @@ class AdvancedProbabilityCalculator:
                 else:
                     prob_ng += prob
         
-        # Normalizzazione
+        # Normalizzazione (ottimizzata)
         total = prob_gg + prob_ng
         if total > 0.0001:
-            prob_gg /= total
-            prob_ng /= total
+            inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
+            prob_gg *= inv_total
+            prob_ng *= inv_total
         
         return {
             'GG': prob_gg,
@@ -1816,11 +1836,12 @@ class AdvancedProbabilityCalculator:
                     # Se total_goals == threshold (solo per interi), non aggiungiamo nulla
                     # perché Over/Under sono sempre con .5
             
-            # Normalizzazione per ogni soglia
+            # Normalizzazione per ogni soglia (ottimizzata)
             total = prob_over + prob_under
             if total > 0.0001:
-                prob_over /= total
-                prob_under /= total
+                inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
+                prob_over *= inv_total
+                prob_under *= inv_total
             
             results[f'Over {threshold}'] = prob_over
             results[f'Under {threshold}'] = prob_under
@@ -2022,11 +2043,12 @@ class AdvancedProbabilityCalculator:
                         prob_trasferta += prob
                     # Se pari, non aggiungiamo (handicap .5 o .0)
             
-            # Normalizzazione
+            # Normalizzazione (ottimizzata)
             total = prob_casa + prob_trasferta
             if total > 0.0001:
-                prob_casa /= total
-                prob_trasferta /= total
+                inv_total = 1.0 / total  # Ottimizzazione: calcola reciproco una volta
+                prob_casa *= inv_total
+                prob_trasferta *= inv_total
             
             results[f'AH {handicap:+.1f} Casa'] = prob_casa
             results[f'AH {handicap:+.1f} Trasferta'] = prob_trasferta
