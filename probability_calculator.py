@@ -124,8 +124,9 @@ class AdvancedProbabilityCalculator:
             # Caso estremo: total molto basso, bilancia equamente
             if total < 2 * min_lambda:
                 # Total troppo basso: bilancia equamente
-                lambda_home = total / 2.0
-                lambda_away = total / 2.0
+                # PRECISIONE: usa moltiplicazione invece di divisione
+                lambda_home = total * 0.5
+                lambda_away = total * 0.5
             else:
                 # Mantieni il rapporto originale ma assicura minimo
                 lambda_home = max(min_lambda, total * original_ratio_home)
@@ -603,15 +604,13 @@ class AdvancedProbabilityCalculator:
             # Usa sempre log-space per massima precisione
             log_prob = k * math.log(lambda_param) - lambda_param
             
-            # Calcola log(k!) usando approssimazione Stirling per k grandi
-            if k > 20:
-                # Approssimazione Stirling: log(k!) ≈ k*log(k) - k + 0.5*log(2*pi*k)
-                log_factorial = k * math.log(k) - k + 0.5 * math.log(2 * math.pi * k)
-                log_prob -= log_factorial
+            # PRECISIONE: usa math.lgamma invece di sum(math.log) per maggiore precisione
+            # math.lgamma(k+1) = log(k!) è più preciso di sum(math.log(i))
+            if k > 0:
+                log_factorial = math.lgamma(k + 1)
             else:
-                # Calcolo esatto per k piccoli
-                for i in range(1, k + 1):
-                    log_prob -= math.log(i)
+                log_factorial = 0.0  # log(0!) = log(1) = 0
+            log_prob -= log_factorial
             
             result = math.exp(log_prob)
             # Verifica che il risultato sia ragionevole
@@ -625,27 +624,33 @@ class AdvancedProbabilityCalculator:
         # Algoritmo standard (più veloce)
         if self.use_log_space and (lambda_param > 3.0 or lambda_param < 0.3):
             # Usa log-space per precisione con lambda estreme
+            # PRECISIONE: usa math.lgamma invece di sum(math.log) per maggiore precisione
             log_prob = k * math.log(lambda_param) - lambda_param
-            for i in range(1, k + 1):
-                log_prob -= math.log(i)
+            if k > 0:
+                log_prob -= math.lgamma(k + 1)  # math.lgamma(k+1) = log(k!)
             result = math.exp(log_prob)
             
             # Cache result
+            # PRECISIONE: aumentata precisione cache da 6 a 8 decimali per consistenza
             if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
-                self._cache_poisson[(k, round(lambda_param, 6))] = result
+                self._cache_poisson[(k, round(lambda_param, 8))] = result
             return result
         else:
             # Calcolo diretto per lambda normali (più veloce)
+            # PRECISIONE: usa math.lgamma invece di math.factorial per maggiore precisione
             if k == 0:
                 result = math.exp(-lambda_param)
             elif k == 1:
                 result = lambda_param * math.exp(-lambda_param)
             else:
-                result = (lambda_param ** k * math.exp(-lambda_param)) / math.factorial(k)
+                # PRECISIONE: usa log-space con lgamma per evitare overflow/underflow
+                log_result = k * math.log(lambda_param) - lambda_param - math.lgamma(k + 1)
+                result = math.exp(log_result)
             
             # Cache result
+            # PRECISIONE: aumentata precisione cache da 6 a 8 decimali per consistenza
             if self._cache_enabled and len(self._cache_poisson) < self._max_cache_size:
-                self._cache_poisson[(k, round(lambda_param, 6))] = result
+                self._cache_poisson[(k, round(lambda_param, 8))] = result
             return result
     
     def get_overdispersion_factor(self, lambda_param: float) -> float:
@@ -1191,7 +1196,8 @@ class AdvancedProbabilityCalculator:
         volatility_uncertainty = min(0.2, volatility * 0.1)  # Max 20% incertezza aggiuntiva
         
         # Incertezza combinata
-        total_uncertainty = (uncertainty_home + uncertainty_away) / 2.0 + volatility_uncertainty
+        # PRECISIONE: usa moltiplicazione invece di divisione
+        total_uncertainty = (uncertainty_home + uncertainty_away) * 0.5 + volatility_uncertainty
         
         # Confidence intervals (95% CI)
         # Per Poisson: CI ≈ lambda ± 1.96 * sqrt(lambda)
@@ -1244,7 +1250,8 @@ class AdvancedProbabilityCalculator:
         total_volatility = abs(total_current - total_opening) / max(total_opening, 0.1)
         
         # Volatilità combinata
-        combined_volatility = (spread_volatility + total_volatility) / 2.0
+        # PRECISIONE: usa moltiplicazione invece di divisione
+        combined_volatility = (spread_volatility + total_volatility) * 0.5
         
         # Se volatilità > 20%, aggiusta lambda (riduci leggermente per riflettere incertezza)
         if combined_volatility > 0.2:
@@ -1490,7 +1497,8 @@ class AdvancedProbabilityCalculator:
         lambda_home_adj, lambda_away_adj = self.home_advantage_advanced(lambda_home_adj, lambda_away_adj)
         
         # Pre-calcola valori comuni per ottimizzazione
-        avg_lambda_adj = (lambda_home_adj + lambda_away_adj) / 2.0
+        # PRECISIONE: usa moltiplicazione invece di divisione
+        avg_lambda_adj = (lambda_home_adj + lambda_away_adj) * 0.5
         total_lambda_adj = lambda_home_adj + lambda_away_adj
         
         # Calcola probabilità usando ensemble Poisson/Negative Binomial
