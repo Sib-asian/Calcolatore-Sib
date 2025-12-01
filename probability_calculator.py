@@ -1194,8 +1194,11 @@ class AdvancedProbabilityCalculator:
         
         # Incertezza basata su varianza di lambda
         # Poisson: varianza = lambda, quindi incertezza relativa = 1/sqrt(lambda)
-        uncertainty_home = 1.0 / math.sqrt(max(lambda_home, 0.1))
-        uncertainty_away = 1.0 / math.sqrt(max(lambda_away, 0.1))
+        # PRECISIONE: pre-calcola sqrt per evitare ricalcoli
+        sqrt_lambda_home = math.sqrt(max(lambda_home, 0.1))
+        sqrt_lambda_away = math.sqrt(max(lambda_away, 0.1))
+        uncertainty_home = 1.0 / sqrt_lambda_home
+        uncertainty_away = 1.0 / sqrt_lambda_away
         
         # Incertezza basata su volatilità (cambiamenti spread/total)
         volatility = math.sqrt(spread_change**2 + total_change**2)
@@ -1207,10 +1210,13 @@ class AdvancedProbabilityCalculator:
         
         # Confidence intervals (95% CI)
         # Per Poisson: CI ≈ lambda ± 1.96 * sqrt(lambda)
-        ci_home_lower = max(0.0, lambda_home - 1.96 * math.sqrt(lambda_home))
-        ci_home_upper = lambda_home + 1.96 * math.sqrt(lambda_home)
-        ci_away_lower = max(0.0, lambda_away - 1.96 * math.sqrt(lambda_away))
-        ci_away_upper = lambda_away + 1.96 * math.sqrt(lambda_away)
+        # PRECISIONE: pre-calcola sqrt per evitare ricalcoli
+        sqrt_lambda_home_ci = math.sqrt(lambda_home)
+        sqrt_lambda_away_ci = math.sqrt(lambda_away)
+        ci_home_lower = max(0.0, lambda_home - 1.96 * sqrt_lambda_home_ci)
+        ci_home_upper = lambda_home + 1.96 * sqrt_lambda_home_ci
+        ci_away_lower = max(0.0, lambda_away - 1.96 * sqrt_lambda_away_ci)
+        ci_away_upper = lambda_away + 1.96 * sqrt_lambda_away_ci
         
         return {
             'Uncertainty_Home': uncertainty_home,
