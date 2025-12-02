@@ -108,6 +108,10 @@ class AdvancedProbabilityCalculator:
             spread = max_abs_spread if spread > 0 else -max_abs_spread
         
         # PRECISIONE: usa moltiplicazione invece di divisione dove possibile
+        # CONVENZIONE: Spread negativo = Casa favorita, Spread positivo = Trasferta favorita
+        # Quindi: spread negativo → lambda_home > lambda_away
+        # Formula: lambda_home = (total - spread) / 2, lambda_away = (total + spread) / 2
+        # Con spread = -0.75: lambda_home = (2.75 - (-0.75))/2 = 1.75, lambda_away = (2.75 + (-0.75))/2 = 1.00 ✓
         lambda_home = (total - spread) * 0.5
         lambda_away = (total + spread) * 0.5
         
@@ -2405,6 +2409,14 @@ class AdvancedProbabilityCalculator:
                 score = f"{home}-{away}"
                 prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                 results[score] = prob
+        
+        # Normalizza i risultati esatti per sommare esattamente a 1.0
+        # (compensa troncamento dovuto a limite dinamico di gol)
+        total_prob = sum(results.values())
+        if total_prob > 0.0001:
+            # Normalizza
+            inv_total = 1.0 / total_prob
+            results = {score: prob * inv_total for score, prob in results.items()}
         
         # Ordiniamo per probabilità decrescente
         sorted_results = dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
