@@ -20,8 +20,8 @@ class AdvancedProbabilityCalculator:
         # rho varia tra 0.05-0.15, usiamo valore medio ottimizzato
         self.rho_base = 0.12  # Correlazione base tra gol casa e trasferta
         
-        # Parametri ottimizzati per precisione massima
-        self.overdispersion_factor_base = 1.1  # Fattore base overdispersion (ottimizzato)
+        # Parametri ottimizzati - VERSIONE CONSERVATIVA (fix sovracorrezione)
+        self.overdispersion_factor_base = 1.05  # Ridotto da 1.1 per evitare sovracorrezione
         self.skewness_correction_strength = 0.05  # Forza correzione skewness (ottimizzato)
         self.bias_correction_strength = 0.02  # Forza correzione bias (ottimizzato)
         
@@ -36,39 +36,40 @@ class AdvancedProbabilityCalculator:
         self._cache_enabled = True  # Abilita caching
         self._max_cache_size = 1000  # Dimensione massima cache
         
-        # Parametri avanzati per miglioramenti
-        self.use_overdispersion_correction = True  # Correzione per overdispersion
-        self.use_skewness_correction = True  # Correzione per skewness Poisson
-        self.use_karlis_ntzoufras = True  # Modello Karlis-Ntzoufras (correlazione esplicita)
-        self.use_bias_correction = True  # Correzione per bias sistematici
-        self.use_advanced_numerical = True  # Algoritmi numerici avanzati
+        # Parametri avanzati - CONFIGURAZIONE CONSERVATIVA
+        # Manteniamo solo le correzioni fondamentali e scientificamente validate
+        self.use_overdispersion_correction = True  # Correzione per overdispersion (leggera)
+        self.use_skewness_correction = False  # DISABILITATO - ridondante con Dixon-Coles
+        self.use_karlis_ntzoufras = True  # Modello Karlis-Ntzoufras (correlazione esplicita) - MANTIENI
+        self.use_bias_correction = False  # DISABILITATO - ridondante
+        self.use_advanced_numerical = True  # Algoritmi numerici avanzati (Kahan, lgamma)
         
-        # Formule di precisione massima
-        self.use_ensemble_methods = True  # Ensemble di modelli multipli
-        self.use_bivariate_poisson_full = True  # Bivariate Poisson completo
-        self.use_market_efficiency = True  # Aggiustamenti efficienza mercato
-        self.use_dynamic_calibration = True  # Calibrazione dinamica
-        self.use_bayesian_smoothing = True  # Smoothing bayesiano
-        self.use_home_advantage_advanced = True  # Home advantage avanzato
+        # Formule di precisione massima - MAGGIOR PARTE DISABILITATE
+        self.use_ensemble_methods = False  # DISABILITATO - causa principale sovracorrezione
+        self.use_bivariate_poisson_full = True  # Bivariate Poisson completo - MANTIENI
+        self.use_market_efficiency = False  # DISABILITATO - ridondante
+        self.use_dynamic_calibration = False  # DISABILITATO - ridondante
+        self.use_bayesian_smoothing = False  # DISABILITATO - causa sovracorrezione
+        self.use_home_advantage_advanced = False  # DISABILITATO - già in Dixon-Coles
         
-        # Formule ultra-avanzate per precisione estrema
-        self.use_negative_binomial = True  # Negative Binomial (overdispersion precisa)
-        self.use_zero_inflated = True  # Zero-inflated models (0-0 migliorato)
-        self.use_advanced_ensemble = True  # Ensemble più sofisticato
-        self.use_lambda_regression = True  # Regressione avanzata per lambda (solo pattern teorici)
-        self.use_extended_precision = True  # Precisione numerica estesa
+        # Formule ultra-avanzate - TUTTE DISABILITATE
+        self.use_negative_binomial = False  # DISABILITATO - ridondante con overdispersion
+        self.use_zero_inflated = False  # DISABILITATO - Dixon-Coles già gestisce 0-0
+        self.use_advanced_ensemble = False  # DISABILITATO - ensemble disabilitato
+        self.use_lambda_regression = False  # DISABILITATO - teorico, non pratico
+        self.use_extended_precision = True  # Precisione numerica estesa - MANTIENI
         
-        # Formule aggiuntive per precisione massima
-        self.use_market_consistency = True  # Coerenza tra mercati correlati
-        self.use_conditional_probabilities = True  # Probabilità condizionali
-        self.use_uncertainty_quantification = True  # Quantificazione incertezza
-        self.use_volatility_adjustment = True  # Aggiustamento per volatilità spread/total
+        # Formule aggiuntive - TUTTE DISABILITATE
+        self.use_market_consistency = False  # DISABILITATO - normalizzazione già garantisce coerenza
+        self.use_conditional_probabilities = False  # DISABILITATO - ridondante
+        self.use_uncertainty_quantification = False  # DISABILITATO - metriche avanzate non necessarie
+        self.use_volatility_adjustment = False  # DISABILITATO - lambda già calcolate correttamente
         
-        # Formule finali per completezza assoluta
-        self.use_copula_models = True  # Modelli Copula per correlazione avanzata
-        self.use_variance_modeling = True  # Modelli di varianza condizionale (GARCH-like)
-        self.use_predictive_intervals = True  # Intervalli predittivi bayesiani avanzati
-        self.use_calibration_scoring = True  # Scoring per valutare calibrazione
+        # Formule finali - TUTTE DISABILITATE
+        self.use_copula_models = False  # DISABILITATO - Karlis-Ntzoufras già gestisce correlazione
+        self.use_variance_modeling = False  # DISABILITATO - ridondante
+        self.use_predictive_intervals = False  # DISABILITATO - metriche avanzate non necessarie
+        self.use_calibration_scoring = False  # DISABILITATO - metriche avanzate non necessarie
         
     def spread_to_expected_goals(self, spread: float, total: float) -> Tuple[float, float]:
         """
