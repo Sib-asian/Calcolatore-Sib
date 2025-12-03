@@ -6,6 +6,7 @@ App Streamlit per calcolo avanzato di probabilità basato su spread e total
 import streamlit as st
 import pandas as pd
 from probability_calculator import AdvancedProbabilityCalculator
+from api_football_client import get_api_client
 import plotly.graph_objects as go
 import plotly.express as px
 
@@ -71,12 +72,114 @@ total_current = st.sidebar.number_input(
     format="%.2f"
 )
 
+# ===== SEZIONE API: Statistiche Squadre =====
+st.sidebar.markdown("---")
+st.sidebar.subheader("📊 Statistiche Squadre (Opzionale)")
+st.sidebar.markdown("*Carica stats recenti per aggiustamenti automatici*")
+
+# Input nomi squadre
+team_home_name = st.sidebar.text_input(
+    "🏠 Squadra Casa",
+    value="",
+    placeholder="Es: Inter, Milan, Juventus",
+    help="Nome squadra che gioca in casa"
+)
+
+team_away_name = st.sidebar.text_input(
+    "✈️ Squadra Trasferta",
+    value="",
+    placeholder="Es: Juventus, Roma, Napoli",
+    help="Nome squadra che gioca in trasferta"
+)
+
+# Bottone carica statistiche
+if st.sidebar.button("🔍 Carica Statistiche", disabled=(not team_home_name or not team_away_name)):
+    with st.spinner("⏳ Caricamento statistiche da API..."):
+        try:
+            api_client = get_api_client()
+            
+            # Carica stats casa (venue='home')
+            stats_home = api_client.get_team_stats(team_home_name, venue='home')
+            
+            # Carica stats trasferta (venue='away')
+            stats_away = api_client.get_team_stats(team_away_name, venue='away')
+            
+            if stats_home and stats_away:
+                # Salva in session state
+                st.session_state['stats_home'] = stats_home
+                st.session_state['stats_away'] = stats_away
+                st.session_state['api_loaded'] = True
+                st.sidebar.success("✅ Statistiche caricate con successo!")
+            else:
+                error_msg = []
+                if not stats_home:
+                    error_msg.append(f"'{team_home_name}'")
+                if not stats_away:
+                    error_msg.append(f"'{team_away_name}'")
+                st.sidebar.error(f"❌ Squadra non trovata: {', '.join(error_msg)}")
+                st.session_state['api_loaded'] = False
+        except Exception as e:
+            st.sidebar.error(f"❌ Errore API: {str(e)}")
+            st.session_state['api_loaded'] = False
+
+# Mostra stats se caricate
+if st.session_state.get('api_loaded', False):
+    stats_home = st.session_state.get('stats_home')
+    stats_away = st.session_state.get('stats_away')
+    
+    if stats_home and stats_away:
+        st.sidebar.markdown("---")
+        st.sidebar.markdown("**📈 Dati Caricati**")
+        
+        # Stats Casa
+        st.sidebar.markdown(f"**🏠 {stats_home['team_name']}** (in casa)")
+        results_home = ''.join(stats_home['results'])
+        st.sidebar.markdown(f"└ Ultimi 5: `{results_home}`")
+        st.sidebar.markdown(f"└ Media gol: `{stats_home['goals_scored_avg']:.1f}` fatti / `{stats_home['goals_conceded_avg']:.1f}` subiti")
+        st.sidebar.markdown(f"└ Forma: `{stats_home['form_factor']*100:.0f}%`")
+        
+        # Stats Trasferta
+        st.sidebar.markdown(f"**✈️ {stats_away['team_name']}** (in trasferta)")
+        results_away = ''.join(stats_away['results'])
+        st.sidebar.markdown(f"└ Ultimi 5: `{results_away}`")
+        st.sidebar.markdown(f"└ Media gol: `{stats_away['goals_scored_avg']:.1f}` fatti / `{stats_away['goals_conceded_avg']:.1f}` subiti")
+        st.sidebar.markdown(f"└ Forma: `{stats_away['form_factor']*100:.0f}%`")
+        
+        # Alert coerenza
+        lambda_home_input = (total_current - spread_current) * 0.5
+        lambda_away_input = (total_current + spread_current) * 0.5
+        
+        lambda_home_api = stats_home['goals_scored_avg']
+        lambda_away_api = stats_away['goals_scored_avg']
+        
+        diff_home = abs(lambda_home_input - lambda_home_api)
+        diff_away = abs(lambda_away_input - lambda_away_api)
+        
+        st.sidebar.markdown("---")
+        if diff_home > 0.5 or diff_away > 0.5:
+            st.sidebar.warning("⚠️ **Discrepanza rilevata**")
+            st.sidebar.markdown(f"Casa: Input `{lambda_home_input:.2f}` vs API `{lambda_home_api:.1f}` ({'±' if diff_home < 0.1 else '⚠️'}{diff_home:.2f})")
+            st.sidebar.markdown(f"Trasf: Input `{lambda_away_input:.2f}` vs API `{lambda_away_api:.1f}` ({'±' if diff_away < 0.1 else '⚠️'}{diff_away:.2f})")
+        else:
+            st.sidebar.success("✅ Input coerente con forma recente")
+        
+        st.sidebar.info("ℹ️ Gli aggiustamenti API (max ±3%) verranno applicati automaticamente al calcolo")
+
+st.sidebar.markdown("---")
+
 # Calcolo probabilità
 if st.sidebar.button("🔄 Calcola Probabilità", type="primary"):
     with st.spinner("Calcolo in corso..."):
+        # Recupera stats API se disponibili
+        api_stats_home = st.session_state.get('stats_home', None) if st.session_state.get('api_loaded', False) else None
+        api_stats_away = st.session_state.get('stats_away', None) if st.session_state.get('api_loaded', False) else None
+        
+        # Calcolo con stats opzionali
         results = calculator.calculate_all_probabilities(
             spread_opening, total_opening,
-            spread_current, total_current
+            spread_current, total_current,
+            api_stats_home=api_stats_home,
+            api_stats_away=api_stats_away
         )
         st.session_state['results'] = results
         st.session_state['calculated'] = True

@@ -2427,8 +2427,92 @@ class AdvancedProbabilityCalculator:
         
         return sorted_results
     
+    def _apply_api_adjustment(self, lambda_home: float, lambda_away: float,
+                              api_stats_home: Dict, api_stats_away: Dict) -> Tuple[float, float]:
+        """
+        Applica aggiustamento intelligente basato su stats API.
+        
+        Strategia conservativa:
+        1. Form factor (0-1): Squadra in forma vs in crisi
+        2. Variance: Alta variance → meno fiducia nell'aggiustamento
+        3. Aggiustamento MAX ±3% per evitare sovrastime
+        
+        Formula:
+        - Base adjustment: ±2% basato su form
+        - Confidence: ridotto se variance alta (imprevedibilità)
+        - Final: max ±3% complessivo
+        
+        Args:
+            lambda_home: Lambda casa da spread/total
+            lambda_away: Lambda trasferta da spread/total
+            api_stats_home: Stats API casa
+            api_stats_away: Stats API trasferta
+            
+        Returns:
+            Tuple[lambda_home_adjusted, lambda_away_adjusted]
+        """
+        # Estrai stats
+        form_home = api_stats_home.get('form_factor', 0.5)
+        form_away = api_stats_away.get('form_factor', 0.5)
+        variance_home = api_stats_home.get('variance', 1.0)
+        variance_away = api_stats_away.get('variance', 1.0)
+        
+        # AGGIUSTAMENTO CASA
+        # 1. Base adjustment da form (0.98 - 1.02)
+        # form=0.0 (5L) → 0.98 (-2%)
+        # form=0.5 (avg) → 1.00 (0%)
+        # form=1.0 (5W) → 1.02 (+2%)
+        form_adj_home = 0.98 + (form_home * 0.04)
+        
+        # 2. Confidence da variance (riduce adjustment se imprevedibile)
+        # variance < 1.0 → confidence 1.0 (piena)
+        # variance 1.0-2.0 → confidence 0.7-0.4 (ridotta)
+        # variance > 2.0 → confidence 0.3 (molto bassa)
+        if variance_home < 1.0:
+            confidence_home = 1.0
+        elif variance_home < 2.0:
+            confidence_home = 1.0 - (variance_home - 1.0) * 0.6  # 1.0 → 0.4
+        else:
+            confidence_home = 0.3
+        
+        # 3. Final adjustment (max ±3%)
+        adj_home = 1.0 + (form_adj_home - 1.0) * confidence_home
+        adj_home = max(0.97, min(1.03, adj_home))  # Clamp ±3%
+        
+        # AGGIUSTAMENTO TRASFERTA (stessa logica)
+        form_adj_away = 0.98 + (form_away * 0.04)
+        
+        if variance_away < 1.0:
+            confidence_away = 1.0
+        elif variance_away < 2.0:
+            confidence_away = 1.0 - (variance_away - 1.0) * 0.6
+        else:
+            confidence_away = 0.3
+        
+        adj_away = 1.0 + (form_adj_away - 1.0) * confidence_away
+        adj_away = max(0.97, min(1.03, adj_away))  # Clamp ±3%
+        
+        # Applica aggiustamenti
+        lambda_home_adj = lambda_home * adj_home
+        lambda_away_adj = lambda_away * adj_away
+        
+        # VALIDAZIONE: mantieni rapporto total e spread ragionevoli
+        # Se aggiustamento distorce troppo, riduci
+        original_total = lambda_home + lambda_away
+        adjusted_total = lambda_home_adj + lambda_away_adj
+        
+        # Se total shift > 10%, riduci proportionalmente
+        total_shift = abs(adjusted_total - original_total) / original_total
+        if total_shift > 0.10:  # Max 10% shift in total
+            scale = original_total / adjusted_total
+            lambda_home_adj *= scale
+            lambda_away_adj *= scale
+        
+        return lambda_home_adj, lambda_away_adj
+    
     def calculate_all_probabilities(self, spread_opening: float, total_opening: float,
-                                   spread_current: float, total_current: float) -> Dict:
+                                  spread_current: float, total_current: float,
+                                  api_stats_home: Dict = None, api_stats_away: Dict = None) -> Dict:
         """
         Calcola tutte le probabilità per apertura e corrente.
         
@@ -2437,12 +2521,15 @@ class AdvancedProbabilityCalculator:
         - Quantificazione incertezza
         - Probabilità condizionali
         - Coerenza tra mercati
+        - Aggiustamento API (opzionale) basato su forma recente
         
         Args:
             spread_opening: Spread apertura
             total_opening: Total apertura
             spread_current: Spread corrente
             total_current: Total corrente
+            api_stats_home: Stats API squadra casa (opzionale)
+            api_stats_away: Stats API squadra trasferta (opzionale)
             
         Returns:
             Dict completo con tutte le probabilità calcolate + metriche avanzate
@@ -2456,6 +2543,20 @@ class AdvancedProbabilityCalculator:
         lambda_home_current, lambda_away_current = self.spread_to_expected_goals(
             spread_current, total_current
         )
+        
+        # AGGIUSTAMENTO API: Applica se stats disponibili
+        # Aggiusta SOLO corrente (apertura resta come riferimento)
+        api_adjustment_applied = False
+        if api_stats_home and api_stats_away:
+            lambda_home_current_adjusted, lambda_away_current_adjusted = self._apply_api_adjustment(
+                lambda_home_current, lambda_away_current,
+                api_stats_home, api_stats_away
+            )
+            # Sostituisci solo se aggiustamento significativo
+            if lambda_home_current_adjusted != lambda_home_current or lambda_away_current_adjusted != lambda_away_current:
+                lambda_home_current = lambda_home_current_adjusted
+                lambda_away_current = lambda_away_current_adjusted
+                api_adjustment_applied = True
         
         # Applica aggiustamento volatilità (se abilitato)
         if self.use_volatility_adjustment:
