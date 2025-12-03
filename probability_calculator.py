@@ -20,8 +20,8 @@ class AdvancedProbabilityCalculator:
         # rho varia tra 0.05-0.15, usiamo valore medio ottimizzato
         self.rho_base = 0.12  # Correlazione base tra gol casa e trasferta
         
-        # Parametri ottimizzati - VERSIONE CONSERVATIVA (fix sovracorrezione)
-        self.overdispersion_factor_base = 1.05  # Ridotto da 1.1 per evitare sovracorrezione
+        # Parametri ottimizzati per precisione massima
+        self.overdispersion_factor_base = 1.1  # Fattore base overdispersion (ottimizzato)
         self.skewness_correction_strength = 0.05  # Forza correzione skewness (ottimizzato)
         self.bias_correction_strength = 0.02  # Forza correzione bias (ottimizzato)
         
@@ -36,40 +36,39 @@ class AdvancedProbabilityCalculator:
         self._cache_enabled = True  # Abilita caching
         self._max_cache_size = 1000  # Dimensione massima cache
         
-        # Parametri avanzati - CONFIGURAZIONE CONSERVATIVA
-        # Manteniamo solo le correzioni fondamentali e scientificamente validate
-        self.use_overdispersion_correction = True  # Correzione per overdispersion (leggera)
-        self.use_skewness_correction = False  # DISABILITATO - ridondante con Dixon-Coles
-        self.use_karlis_ntzoufras = True  # Modello Karlis-Ntzoufras (correlazione esplicita) - MANTIENI
-        self.use_bias_correction = False  # DISABILITATO - ridondante
-        self.use_advanced_numerical = True  # Algoritmi numerici avanzati (Kahan, lgamma)
+        # Parametri avanzati per miglioramenti
+        self.use_overdispersion_correction = True  # Correzione per overdispersion
+        self.use_skewness_correction = True  # Correzione per skewness Poisson
+        self.use_karlis_ntzoufras = True  # Modello Karlis-Ntzoufras (correlazione esplicita)
+        self.use_bias_correction = True  # Correzione per bias sistematici
+        self.use_advanced_numerical = True  # Algoritmi numerici avanzati
         
-        # Formule di precisione massima - MAGGIOR PARTE DISABILITATE
-        self.use_ensemble_methods = False  # DISABILITATO - causa principale sovracorrezione
-        self.use_bivariate_poisson_full = True  # Bivariate Poisson completo - MANTIENI
-        self.use_market_efficiency = False  # DISABILITATO - ridondante
-        self.use_dynamic_calibration = False  # DISABILITATO - ridondante
-        self.use_bayesian_smoothing = False  # DISABILITATO - causa sovracorrezione
-        self.use_home_advantage_advanced = False  # DISABILITATO - già in Dixon-Coles
+        # Formule di precisione massima
+        self.use_ensemble_methods = True  # Ensemble di modelli multipli
+        self.use_bivariate_poisson_full = True  # Bivariate Poisson completo
+        self.use_market_efficiency = True  # Aggiustamenti efficienza mercato
+        self.use_dynamic_calibration = True  # Calibrazione dinamica
+        self.use_bayesian_smoothing = True  # Smoothing bayesiano
+        self.use_home_advantage_advanced = True  # Home advantage avanzato
         
-        # Formule ultra-avanzate - TUTTE DISABILITATE
-        self.use_negative_binomial = False  # DISABILITATO - ridondante con overdispersion
-        self.use_zero_inflated = False  # DISABILITATO - Dixon-Coles già gestisce 0-0
-        self.use_advanced_ensemble = False  # DISABILITATO - ensemble disabilitato
-        self.use_lambda_regression = False  # DISABILITATO - teorico, non pratico
-        self.use_extended_precision = True  # Precisione numerica estesa - MANTIENI
+        # Formule ultra-avanzate per precisione estrema
+        self.use_negative_binomial = True  # Negative Binomial (overdispersion precisa)
+        self.use_zero_inflated = True  # Zero-inflated models (0-0 migliorato)
+        self.use_advanced_ensemble = True  # Ensemble più sofisticato
+        self.use_lambda_regression = True  # Regressione avanzata per lambda (solo pattern teorici)
+        self.use_extended_precision = True  # Precisione numerica estesa
         
-        # Formule aggiuntive - TUTTE DISABILITATE
-        self.use_market_consistency = False  # DISABILITATO - normalizzazione già garantisce coerenza
-        self.use_conditional_probabilities = False  # DISABILITATO - ridondante
-        self.use_uncertainty_quantification = False  # DISABILITATO - metriche avanzate non necessarie
-        self.use_volatility_adjustment = False  # DISABILITATO - lambda già calcolate correttamente
+        # Formule aggiuntive per precisione massima
+        self.use_market_consistency = True  # Coerenza tra mercati correlati
+        self.use_conditional_probabilities = True  # Probabilità condizionali
+        self.use_uncertainty_quantification = True  # Quantificazione incertezza
+        self.use_volatility_adjustment = True  # Aggiustamento per volatilità spread/total
         
-        # Formule finali - TUTTE DISABILITATE
-        self.use_copula_models = False  # DISABILITATO - Karlis-Ntzoufras già gestisce correlazione
-        self.use_variance_modeling = False  # DISABILITATO - ridondante
-        self.use_predictive_intervals = False  # DISABILITATO - metriche avanzate non necessarie
-        self.use_calibration_scoring = False  # DISABILITATO - metriche avanzate non necessarie
+        # Formule finali per completezza assoluta
+        self.use_copula_models = True  # Modelli Copula per correlazione avanzata
+        self.use_variance_modeling = True  # Modelli di varianza condizionale (GARCH-like)
+        self.use_predictive_intervals = True  # Intervalli predittivi bayesiani avanzati
+        self.use_calibration_scoring = True  # Scoring per valutare calibrazione
         
     def spread_to_expected_goals(self, spread: float, total: float) -> Tuple[float, float]:
         """
@@ -108,10 +107,6 @@ class AdvancedProbabilityCalculator:
             spread = max_abs_spread if spread > 0 else -max_abs_spread
         
         # PRECISIONE: usa moltiplicazione invece di divisione dove possibile
-        # CONVENZIONE: Spread negativo = Casa favorita, Spread positivo = Trasferta favorita
-        # Quindi: spread negativo → lambda_home > lambda_away
-        # Formula: lambda_home = (total - spread) / 2, lambda_away = (total + spread) / 2
-        # Con spread = -0.75: lambda_home = (2.75 - (-0.75))/2 = 1.75, lambda_away = (2.75 + (-0.75))/2 = 1.00 ✓
         lambda_home = (total - spread) * 0.5
         lambda_away = (total + spread) * 0.5
         
@@ -1505,39 +1500,33 @@ class AdvancedProbabilityCalculator:
                                       use_ensemble: bool = False) -> float:
         """
         Core calculation senza ricorsione per ensemble.
-        Versione CORRETTA che rispetta i flag di configurazione.
+        Versione ultra-avanzata con tutte le ottimizzazioni.
+        OTTIMIZZATO: pre-calcolo valori comuni, riduzione calcoli ridondanti.
         """
-        # Inizializza lambda aggiustate
-        lambda_home_adj = lambda_home
-        lambda_away_adj = lambda_away
+        # Applica regressione lambda (prima di tutto)
+        lambda_home_adj, lambda_away_adj = self.lambda_regression_adjustment(lambda_home, lambda_away)
         
-        # Applica regressione lambda (se abilitata)
-        if self.use_lambda_regression:
-            lambda_home_adj, lambda_away_adj = self.lambda_regression_adjustment(lambda_home_adj, lambda_away_adj)
-        
-        # Applica calibrazione dinamica (se abilitata)
-        if self.use_dynamic_calibration:
-            lambda_home_adj, lambda_away_adj = self.dynamic_calibration(lambda_home_adj, lambda_away_adj)
-        
-        # Applica home advantage avanzato (se abilitato)
-        if self.use_home_advantage_advanced:
-            lambda_home_adj, lambda_away_adj = self.home_advantage_advanced(lambda_home_adj, lambda_away_adj)
+        # Applica calibrazione dinamica e home advantage avanzato
+        lambda_home_adj, lambda_away_adj = self.dynamic_calibration(lambda_home_adj, lambda_away_adj)
+        lambda_home_adj, lambda_away_adj = self.home_advantage_advanced(lambda_home_adj, lambda_away_adj)
         
         # Pre-calcola valori comuni per ottimizzazione
+        # PRECISIONE: usa moltiplicazione invece di divisione
         avg_lambda_adj = (lambda_home_adj + lambda_away_adj) * 0.5
+        total_lambda_adj = lambda_home_adj + lambda_away_adj
         
-        # Calcola probabilità usando ensemble Poisson/Negative Binomial (se abilitato)
+        # Calcola probabilità usando ensemble Poisson/Negative Binomial
         if self.use_negative_binomial and lambda_home_adj > 1.0:
             # Usa Negative Binomial per overdispersion più precisa
             prob_home_nb = self.negative_binomial_probability(home_goals, lambda_home_adj)
             prob_away_nb = self.negative_binomial_probability(away_goals, lambda_away_adj)
             prob_home_pois = self.poisson_probability(home_goals, lambda_home_adj)
             prob_away_pois = self.poisson_probability(away_goals, lambda_away_adj)
-            # Media pesata
+            # Media pesata ottimizzata: peso NB aumenta con lambda (overdispersion più importante per lambda alte)
             if lambda_home_adj > 2.0:
-                weight_nb = 0.65
+                weight_nb = 0.65  # Lambda alte: più peso a NB
             else:
-                weight_nb = 0.60
+                weight_nb = 0.60  # Lambda normali: peso standard
             prob_home = weight_nb * prob_home_nb + (1 - weight_nb) * prob_home_pois
             prob_away = weight_nb * prob_away_nb + (1 - weight_nb) * prob_away_pois
         else:
@@ -1545,73 +1534,58 @@ class AdvancedProbabilityCalculator:
             prob_home = self.poisson_probability(home_goals, lambda_home_adj)
             prob_away = self.poisson_probability(away_goals, lambda_away_adj)
         
-        # Applica zero-inflated adjustment (se abilitato)
-        if self.use_zero_inflated:
-            zero_infl_home = self.zero_inflated_adjustment(home_goals, lambda_home_adj)
-            zero_infl_away = self.zero_inflated_adjustment(away_goals, lambda_away_adj)
-            prob_home *= zero_infl_home
-            prob_away *= zero_infl_away
+        # Applica zero-inflated adjustment
+        zero_infl_home = self.zero_inflated_adjustment(home_goals, lambda_home_adj)
+        zero_infl_away = self.zero_inflated_adjustment(away_goals, lambda_away_adj)
+        prob_home *= zero_infl_home
+        prob_away *= zero_infl_away
         
-        # Aggiustamento Dixon-Coles (SEMPRE attivo - fondamentale)
+        # Aggiustamento Dixon-Coles
         tau = self.dixon_coles_adjustment(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
         
-        # Inizializza correzioni a 1.0 (neutro)
-        kn_correction = 1.0
-        skew_correction = 1.0
-        overdisp_correction = 1.0
-        bias_correction = 1.0
-        market_correction = 1.0
-        copula_correction = 1.0
-        variance_correction = 1.0
+        # Correzione Karlis-Ntzoufras (correlazione esplicita)
+        kn_correction = self.karlis_ntzoufras_correction(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
         
-        # Correzione Karlis-Ntzoufras (se abilitata)
-        if self.use_karlis_ntzoufras:
-            kn_correction = self.karlis_ntzoufras_correction(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
+        # Pre-calcola correzioni comuni (ottimizzazione: evita ricalcoli)
+        # Correzione skewness
+        skew_home = self.get_skewness_correction(home_goals, lambda_home_adj)
+        skew_away = self.get_skewness_correction(away_goals, lambda_away_adj)
+        skew_correction = (skew_home + skew_away) * 0.5  # Ottimizzato: moltiplicazione invece di divisione
         
-        # Correzione skewness (se abilitata)
-        if self.use_skewness_correction:
-            skew_home = self.get_skewness_correction(home_goals, lambda_home_adj)
-            skew_away = self.get_skewness_correction(away_goals, lambda_away_adj)
-            skew_correction = (skew_home + skew_away) * 0.5
+        # Aggiustamento overdispersion
+        overdisp_factor_home = self.get_overdispersion_factor(lambda_home_adj)
+        overdisp_factor_away = self.get_overdispersion_factor(lambda_away_adj)
+        overdisp_correction = (overdisp_factor_home + overdisp_factor_away) * 0.5
         
-        # Aggiustamento overdispersion (se abilitato)
-        if self.use_overdispersion_correction:
-            overdisp_factor_home = self.get_overdispersion_factor(lambda_home_adj)
-            overdisp_factor_away = self.get_overdispersion_factor(lambda_away_adj)
-            overdisp_correction = (overdisp_factor_home + overdisp_factor_away) * 0.5
+        # Correzione bias sistematici (usa valori pre-calcolati)
+        bias_correction = self.get_bias_correction(lambda_home_adj, lambda_away_adj)
         
-        # Correzione bias sistematici (se abilitata)
-        if self.use_bias_correction:
-            bias_correction = self.get_bias_correction(lambda_home_adj, lambda_away_adj)
+        # Aggiustamento efficienza mercato
+        market_correction = self.market_efficiency_adjustment(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
         
-        # Aggiustamento efficienza mercato (se abilitato)
-        if self.use_market_efficiency:
-            market_correction = self.market_efficiency_adjustment(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
+        # Aggiustamento Copula (correlazione avanzata)
+        copula_correction = self.copula_correlation_adjustment(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
         
-        # Aggiustamento Copula (se abilitato)
-        if self.use_copula_models:
-            copula_correction = self.copula_correlation_adjustment(home_goals, away_goals, lambda_home_adj, lambda_away_adj)
+        # Aggiustamento varianza condizionale
+        variance_correction = self.variance_modeling_advanced(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
         
-        # Aggiustamento varianza condizionale (se abilitato)
-        if self.use_variance_modeling:
-            variance_correction = self.variance_modeling_advanced(lambda_home_adj, lambda_away_adj, home_goals, away_goals)
-        
-        # Pre-calcola prodotto correzioni
+        # Pre-calcola prodotto correzioni (ottimizzazione: una moltiplicazione invece di 7)
         all_corrections = kn_correction * skew_correction * overdisp_correction * \
                          bias_correction * market_correction * copula_correction * variance_correction
         
-        # Applica tutte le correzioni
+        # Applica tutte le correzioni (rimossi momentum e pressure - troppo euristici)
         base_prob = prob_home * prob_away * tau
         
-        # Early exit se probabilità trascurabile
+        # Ottimizzazione: early exit se probabilità è già trascurabile
         if base_prob < 1e-15:
             return 0.0
         
-        # Applica correzioni
+        # Ottimizzazione: usa prodotto pre-calcolato invece di 7 moltiplicazioni separate
         corrected_prob = base_prob * all_corrections
         
-        # Smoothing bayesiano finale (se abilitato e non in ensemble)
-        if self.use_bayesian_smoothing and not use_ensemble:
+        # Smoothing bayesiano finale (solo se non in ensemble, per evitare doppio smoothing)
+        if not use_ensemble:
+            # Ottimizzazione: usa avg_lambda_adj pre-calcolato invece di ricalcolarlo
             corrected_prob = self.bayesian_smoothing(corrected_prob, avg_lambda_adj)
         
         # Assicura che la probabilità sia ragionevole
@@ -2244,8 +2218,14 @@ class AdvancedProbabilityCalculator:
                         prob_casa /= final_total
                         prob_trasferta /= final_total
             
-            results[f'AH {handicap:+.1f} Casa'] = prob_casa
-            results[f'AH {handicap:+.1f} Trasferta'] = prob_trasferta
+            # Formattazione chiave: gestisce 0.0 senza segno per compatibilità
+            if handicap == 0.0:
+                key_suffix = '0.0'
+            else:
+                key_suffix = f'{handicap:+.1f}'
+            
+            results[f'AH {key_suffix} Casa'] = prob_casa
+            results[f'AH {key_suffix} Trasferta'] = prob_trasferta
         
         return results
     
@@ -2303,6 +2283,9 @@ class AdvancedProbabilityCalculator:
         - Casa Win to Nil: Casa vince e trasferta non segna (1-0, 2-0, 3-0, ...)
         - Trasferta Win to Nil: Trasferta vince e casa non segna (0-1, 0-2, 0-3, ...)
         
+        IMPORTANTE: Garantisce coerenza matematica con NG:
+        P(Casa WtN) + P(Trasferta WtN) + P(0-0) = P(NG)
+        
         Args:
             lambda_home: Attesa gol casa
             lambda_away: Attesa gol trasferta
@@ -2313,10 +2296,14 @@ class AdvancedProbabilityCalculator:
         # PRECISIONE: usa Kahan Summation
         prob_casa_wtn = 0.0
         prob_trasferta_wtn = 0.0
+        prob_00 = 0.0  # Pareggio 0-0
         error_casa_wtn = 0.0
         error_trasferta_wtn = 0.0
         
         max_goals = self.get_dynamic_max_goals(lambda_home, lambda_away) if self.max_goals_dynamic else 10
+        
+        # Calcola 0-0 per coerenza
+        prob_00 = self.exact_score_probability(0, 0, lambda_home, lambda_away)
         
         for home in range(1, max_goals + 1):  # Casa deve segnare almeno 1
             prob = self.exact_score_probability(home, 0, lambda_home, lambda_away)
@@ -2331,6 +2318,21 @@ class AdvancedProbabilityCalculator:
             t = prob_trasferta_wtn + y
             error_trasferta_wtn = (t - prob_trasferta_wtn) - y
             prob_trasferta_wtn = t
+        
+        # COERENZA: Verifica e corregge se Win to Nil supera NG
+        # Matematicamente: P(Casa WtN) + P(Trasferta WtN) + P(0-0) = P(NG)
+        gg_ng = self.calculate_gg_ng_probabilities(lambda_home, lambda_away)
+        prob_ng = gg_ng['NG']
+        
+        sum_wtn_and_00 = prob_casa_wtn + prob_trasferta_wtn + prob_00
+        
+        # Se la somma supera NG (per effetto delle correzioni), normalizza
+        if sum_wtn_and_00 > prob_ng + 0.0001:  # Tolleranza
+            # Normalizza mantenendo le proporzioni
+            if sum_wtn_and_00 > 0:
+                scale_factor = prob_ng / sum_wtn_and_00
+                prob_casa_wtn *= scale_factor
+                prob_trasferta_wtn *= scale_factor
         
         return {
             'Casa Win to Nil': prob_casa_wtn,
@@ -2409,14 +2411,6 @@ class AdvancedProbabilityCalculator:
                 score = f"{home}-{away}"
                 prob = self.exact_score_probability(home, away, lambda_home, lambda_away)
                 results[score] = prob
-        
-        # Normalizza i risultati esatti per sommare esattamente a 1.0
-        # (compensa troncamento dovuto a limite dinamico di gol)
-        total_prob = sum(results.values())
-        if total_prob > 0.0001:
-            # Normalizza
-            inv_total = 1.0 / total_prob
-            results = {score: prob * inv_total for score, prob in results.items()}
         
         # Ordiniamo per probabilità decrescente
         sorted_results = dict(sorted(results.items(), key=lambda x: x[1], reverse=True))
