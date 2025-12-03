@@ -95,7 +95,13 @@ class APIFootballClient:
     
     def search_team(self, team_name: str) -> Optional[Dict]:
         """
-        Cerca squadra per nome.
+        Cerca squadra per nome con logica intelligente.
+        
+        Priorità:
+        1. Alias esatti (Milan → AC Milan)
+        2. Match nome esatto
+        3. Squadre top leghe europee
+        4. Escluse squadre giovanili/femminili
         
         Args:
             team_name: Nome squadra (es. 'Inter', 'Juventus')
@@ -103,13 +109,31 @@ class APIFootballClient:
         Returns:
             Dict con team_id e team_name o None
         """
+        # Alias per squadre ambigue (chiave=input, valore=nome corretto per API)
+        team_aliases = {
+            'milan': 'AC Milan',
+            'inter': 'Inter',
+            'roma': 'AS Roma',
+            'lazio': 'Lazio',
+            'city': 'Manchester City',
+            'united': 'Manchester United',
+            'psg': 'Paris Saint Germain',
+            'atletico': 'Atletico Madrid',
+        }
+        
+        # Check alias
+        search_term = team_name
+        team_key_lower = team_name.lower().strip()
+        if team_key_lower in team_aliases:
+            search_term = team_aliases[team_key_lower]
+        
         # Check cache
-        cache_key = f"team_{team_name.lower()}"
+        cache_key = f"team_{search_term.lower()}"
         if cache_key in self.cache:
             return self.cache[cache_key]
         
         # API call
-        data = self._make_request('/teams', {'search': team_name})
+        data = self._make_request('/teams', {'search': search_term})
         
         if not data or not data.get('response'):
             return None
@@ -119,12 +143,65 @@ class APIFootballClient:
         if len(teams) == 0:
             return None
         
-        # Prendi primo risultato (più rilevante)
-        team = teams[0]['team']
+        # Priorità: squadre da top leghe europee + match nome esatto
+        # Top leagues IDs (Serie A, Premier, La Liga, Bundesliga, Ligue 1, etc)
+        top_league_ids = [
+            135,  # Serie A (Italia)
+            39,   # Premier League (Inghilterra)
+            140,  # La Liga (Spagna)
+            78,   # Bundesliga (Germania)
+            61,   # Ligue 1 (Francia)
+            94,   # Primeira Liga (Portogallo)
+            88,   # Eredivisie (Olanda)
+            203,  # Super Lig (Turchia)
+            2,    # Champions League
+            3,    # Europa League
+        ]
+        
+        # Cerca match migliore
+        best_team = None
+        best_score = -1
+        
+        for team_data in teams:
+            team = team_data['team']
+            venue = team_data.get('venue', {})
+            
+            score = 0
+            
+            # 1. Match nome esatto (case-insensitive)
+            if team['name'].lower() == team_name.lower():
+                score += 100
+            elif team['name'].lower().startswith(team_name.lower()):
+                score += 50
+            elif team_name.lower() in team['name'].lower():
+                score += 25
+            
+            # 2. Top league bonus
+            # Nota: L'API non restituisce direttamente la league nel search,
+            # quindi diamo priorità a paesi top
+            country = team.get('country', '')
+            if country in ['England', 'Italy', 'Spain', 'Germany', 'France']:
+                score += 30
+            elif country in ['Portugal', 'Netherlands', 'Belgium', 'Turkey']:
+                score += 20
+            
+            # 3. Penalità per squadre "secondarie"
+            name_lower = team['name'].lower()
+            if any(x in name_lower for x in ['u19', 'u20', 'u21', 'u23', ' b', ' ii', ' w', 'women']):
+                score -= 50
+            
+            if score > best_score:
+                best_score = score
+                best_team = team
+        
+        if best_team is None:
+            best_team = teams[0]['team']  # Fallback al primo
+        
         result = {
-            'team_id': team['id'],
-            'team_name': team['name'],
-            'logo': team.get('logo', '')
+            'team_id': best_team['id'],
+            'team_name': best_team['name'],
+            'logo': best_team.get('logo', ''),
+            'country': best_team.get('country', '')
         }
         
         # Cache
