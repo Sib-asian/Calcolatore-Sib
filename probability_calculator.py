@@ -16,59 +16,61 @@ class AdvancedProbabilityCalculator:
     """
     
     def __init__(self):
-        # Parametri Dixon-Coles ottimizzati (basati su letteratura e dati reali)
-        # rho varia tra 0.05-0.15, usiamo valore medio ottimizzato
-        self.rho_base = 0.12  # Correlazione base tra gol casa e trasferta
+        # ========== CONFIGURAZIONE ULTRA-CONSERVATIVA ==========
+        # Ridotte DRASTICAMENTE le correzioni per allinearsi al Poisson puro
+        # Obiettivo: Delta vs Poisson < 5% (invece di 10-30%)
         
-        # Parametri ottimizzati per precisione massima
-        self.overdispersion_factor_base = 1.1  # Fattore base overdispersion (ottimizzato)
-        self.skewness_correction_strength = 0.05  # Forza correzione skewness (ottimizzato)
-        self.bias_correction_strength = 0.02  # Forza correzione bias (ottimizzato)
+        # Parametri Dixon-Coles/Karlis-Ntzoufras MOLTO ridotti
+        # rho rappresenta correlazione tra gol casa e trasferta
+        # Standard accademico: 0.05-0.15, ma riduciamo a 0.01 per conservatività
+        self.rho_base = 0.01  # ERA 0.12, ORA 0.01 (riduzione -92%)
         
-        # Precisione calcoli
+        # Overdispersion MINIMO (quasi disabilitato)
+        # Factor 1.0 = nessuna correzione, 1.02 = minima correzione
+        self.overdispersion_factor_base = 1.02  # ERA 1.1, POI 1.05, ORA 1.02 (riduzione -73%)
+        self.skewness_correction_strength = 0.05  # Non usato (flag disabilitato)
+        self.bias_correction_strength = 0.02  # Non usato (flag disabilitato)
+        
+        # Precisione calcoli (manteniamo questi, non influenzano sovrastime)
         self.max_goals_dynamic = True  # Limite gol dinamico
         self.use_log_space = True  # Usa log-space per precisione
         
-        # Ottimizzazioni computazionali
+        # Ottimizzazioni computazionali (manteniamo, solo performance)
         self._cache_poisson = {}  # Cache per calcoli Poisson
         self._cache_max_goals = {}  # Cache per max_goals
         self._cache_factorial = {}  # Cache per factorial
         self._cache_enabled = True  # Abilita caching
         self._max_cache_size = 1000  # Dimensione massima cache
         
-        # Parametri avanzati per miglioramenti
-        self.use_overdispersion_correction = True  # Correzione per overdispersion
-        self.use_skewness_correction = True  # Correzione per skewness Poisson
-        self.use_karlis_ntzoufras = True  # Modello Karlis-Ntzoufras (correlazione esplicita)
-        self.use_bias_correction = True  # Correzione per bias sistematici
-        self.use_advanced_numerical = True  # Algoritmi numerici avanzati
+        # ========== CORREZIONI ATTIVE (MINIME) ==========
+        # SOLO le correzioni essenziali e scientificamente validate
+        self.use_overdispersion_correction = True  # Overdispersion minimo (1.02)
+        self.use_karlis_ntzoufras = True  # Karlis-Ntzoufras minimo (rho=0.01)
+        self.use_bivariate_poisson_full = True  # Bivariate Poisson (base matematica)
+        self.use_advanced_numerical = True  # Algoritmi numerici (precisione, non bias)
+        self.use_extended_precision = True  # Precisione numerica (Kahan summation, etc)
         
-        # Formule di precisione massima
-        self.use_ensemble_methods = True  # Ensemble di modelli multipli
-        self.use_bivariate_poisson_full = True  # Bivariate Poisson completo
-        self.use_market_efficiency = True  # Aggiustamenti efficienza mercato
-        self.use_dynamic_calibration = True  # Calibrazione dinamica
-        self.use_bayesian_smoothing = True  # Smoothing bayesiano
-        self.use_home_advantage_advanced = True  # Home advantage avanzato
-        
-        # Formule ultra-avanzate per precisione estrema
-        self.use_negative_binomial = True  # Negative Binomial (overdispersion precisa)
-        self.use_zero_inflated = True  # Zero-inflated models (0-0 migliorato)
-        self.use_advanced_ensemble = True  # Ensemble più sofisticato
-        self.use_lambda_regression = True  # Regressione avanzata per lambda (solo pattern teorici)
-        self.use_extended_precision = True  # Precisione numerica estesa
-        
-        # Formule aggiuntive per precisione massima
-        self.use_market_consistency = True  # Coerenza tra mercati correlati
-        self.use_conditional_probabilities = True  # Probabilità condizionali
-        self.use_uncertainty_quantification = True  # Quantificazione incertezza
-        self.use_volatility_adjustment = True  # Aggiustamento per volatilità spread/total
-        
-        # Formule finali per completezza assoluta
-        self.use_copula_models = True  # Modelli Copula per correlazione avanzata
-        self.use_variance_modeling = True  # Modelli di varianza condizionale (GARCH-like)
-        self.use_predictive_intervals = True  # Intervalli predittivi bayesiani avanzati
-        self.use_calibration_scoring = True  # Scoring per valutare calibrazione
+        # ========== CORREZIONI DISABILITATE ==========
+        # Tutte le correzioni avanzate che causavano sovrastime
+        self.use_skewness_correction = False  # ERA True, causa sovrastime
+        self.use_bias_correction = False  # ERA True, causa sovrastime
+        self.use_ensemble_methods = False  # ERA True, moltiplica correzioni
+        self.use_market_efficiency = False  # ERA True, causa sovrastime
+        self.use_dynamic_calibration = False  # ERA True, causa sovrastime
+        self.use_bayesian_smoothing = False  # ERA True, causa sovrastime
+        self.use_home_advantage_advanced = False  # ERA True, causa sovrastime
+        self.use_negative_binomial = False  # ERA True, causa sovrastime
+        self.use_zero_inflated = False  # ERA True, causa sovrastime
+        self.use_advanced_ensemble = False  # ERA True, causa sovrastime
+        self.use_lambda_regression = False  # ERA True, causa sovrastime
+        self.use_market_consistency = False  # ERA True, causa sovrastime
+        self.use_conditional_probabilities = False  # ERA True, causa sovrastime
+        self.use_uncertainty_quantification = False  # ERA True, causa sovrastime
+        self.use_volatility_adjustment = False  # ERA True, causa sovrastime
+        self.use_copula_models = False  # ERA True, causa sovrastime
+        self.use_variance_modeling = False  # ERA True, causa sovrastime
+        self.use_predictive_intervals = False  # ERA True, causa sovrastime
+        self.use_calibration_scoring = False  # ERA True, causa sovrastime
         
     def spread_to_expected_goals(self, spread: float, total: float) -> Tuple[float, float]:
         """
