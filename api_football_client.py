@@ -115,6 +115,8 @@ class APIFootballClient:
             'inter': 'Inter',
             'roma': 'AS Roma',
             'lazio': 'Lazio',
+            'bologna': 'Bologna',
+            'parma': 'Parma',
             'city': 'Manchester City',
             'united': 'Manchester United',
             'psg': 'Paris Saint Germain',
@@ -185,10 +187,14 @@ class APIFootballClient:
             elif country in ['Portugal', 'Netherlands', 'Belgium', 'Turkey']:
                 score += 20
             
-            # 3. Penalità per squadre "secondarie"
+            # 3. Penalità PESANTE per squadre "secondarie" (giovanili, femminili, riserve)
             name_lower = team['name'].lower()
-            if any(x in name_lower for x in ['u19', 'u20', 'u21', 'u23', ' b', ' ii', ' w', 'women']):
-                score -= 50
+            if any(x in name_lower for x in ['u19', 'u20', 'u21', 'u23', 'u18', 'youth', 'primavera']):
+                score -= 500  # Penalità molto alta per giovanili
+            elif any(x in name_lower for x in [' b', ' ii', ' c', ' reserves']):
+                score -= 400  # Penalità alta per squadre B/C/riserve
+            elif any(x in name_lower for x in [' w', 'women', 'femminile']):
+                score -= 500  # Penalità molto alta per femminile
             
             if score > best_score:
                 best_score = score
@@ -222,7 +228,7 @@ class APIFootballClient:
         """
         params = {
             'team': team_id,
-            'last': limit * 2,  # Richiedi più del necessario per filtrare
+            'last': limit * 5 if venue in ['home', 'away'] else limit * 2,  # Moltiplicatore più alto per venue specifico
             'status': 'FT'  # Solo match finiti
         }
         

@@ -152,3 +152,4 @@ df.to_csv('pronostici.csv', index=False)
 
 
 
+
