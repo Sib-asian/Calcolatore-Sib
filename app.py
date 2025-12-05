@@ -111,22 +111,64 @@ total_current = st.sidebar.number_input(
     format="%.2f"
 )
 
+st.sidebar.markdown("---")
+st.sidebar.subheader("⚽ Squadre (Opzionale)")
+st.sidebar.markdown("*Inserisci i nomi per analisi AI automatica*")
+
+team_home = st.sidebar.text_input(
+    "Squadra Casa",
+    value="",
+    placeholder="Es: Inter, Milan, Juventus..."
+)
+
+team_away = st.sidebar.text_input(
+    "Squadra Trasferta",
+    value="",
+    placeholder="Es: Inter, Milan, Juventus..."
+)
+
 # Calcolo probabilità
-if st.sidebar.button("🔄 Calcola Probabilità", type="primary"):
-    with st.spinner("Calcolo in corso..."):
-        results = calculator.calculate_all_probabilities(
-            spread_opening, total_opening,
-            spread_current, total_current
-        )
-        st.session_state['results'] = results
-        st.session_state['calculated'] = True
-        # Salva context per AI
-        st.session_state['ai_context'] = {
-            'spread_opening': spread_opening,
-            'total_opening': total_opening,
-            'spread_current': spread_current,
-            'total_current': total_current
-        }
+if st.sidebar.button("🔄 Analizza Partita", type="primary"):
+        with st.spinner("Calcolo probabilità in corso..."):
+            results = calculator.calculate_all_probabilities(
+                spread_opening, total_opening,
+                spread_current, total_current
+            )
+            st.session_state['results'] = results
+            st.session_state['calculated'] = True
+            # Salva context per AI
+            st.session_state['ai_context'] = {
+                'spread_opening': spread_opening,
+                'total_opening': total_opening,
+                'spread_current': spread_current,
+                'total_current': total_current,
+                'team_home': team_home,
+                'team_away': team_away
+            }
+            
+            # Chiamata automatica AI se squadre inserite
+            if ai_agent and (team_home or team_away):
+                st.session_state['ai_analysis'] = None
+                with st.spinner("🤖 AI sta analizzando la partita..."):
+                    try:
+                        # Prepara prompt per analisi automatica
+                        analysis_prompt = f"Analizza questa partita di calcio:\n"
+                        if team_home:
+                            analysis_prompt += f"- Squadra Casa: {team_home}\n"
+                        if team_away:
+                            analysis_prompt += f"- Squadra Trasferta: {team_away}\n"
+                        analysis_prompt += f"\nSpread Apertura: {spread_opening}, Total Apertura: {total_opening}\n"
+                        analysis_prompt += f"Spread Corrente: {spread_current}, Total Corrente: {total_current}\n"
+                        analysis_prompt += "\nFornisci un'analisi completa con:\n"
+                        analysis_prompt += "1. News recenti sulle squadre\n"
+                        analysis_prompt += "2. Infortuni e formazioni\n"
+                        analysis_prompt += "3. Analisi del movimento mercato\n"
+                        analysis_prompt += "4. Insights e raccomandazioni"
+                        
+                        ai_result = ai_agent.chat(analysis_prompt, context=st.session_state['ai_context'])
+                        st.session_state['ai_analysis'] = ai_result.get('response', '')
+                    except Exception as e:
+                        st.session_state['ai_analysis'] = f"⚠️ Errore durante analisi AI: {str(e)}"
 
 # Tabs principali
 main_tab1, main_tab2 = st.tabs(["📊 Calcolatore", "🤖 AI Assistant"])
@@ -658,7 +700,10 @@ with main_tab1:
             st.info("➡️ Nessun movimento significativo nel total")
     
     else:
-        st.info("👈 Inserisci i dati nella sidebar e clicca 'Calcola Probabilità' per iniziare")
+        st.info("👈 Inserisci i dati nella sidebar e clicca '🔄 Analizza Partita' per iniziare")
+        st.markdown("""
+        **💡 Suggerimento**: Inserisci anche i nomi delle squadre per ottenere un'analisi AI automatica completa!
+        """)
 
 # Tab AI Assistant
 with main_tab2:
