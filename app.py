@@ -165,7 +165,13 @@ if st.sidebar.button("🔄 Analizza Partita", type="primary"):
                             analysis_prompt += f"2. USA get_team_news per cercare news, infortuni e formazioni per {team_away}\n"
                         analysis_prompt += f"3. Analizza il movimento mercato (spread da {spread_opening} a {spread_current}, total da {total_opening} a {total_current})\n"
                         analysis_prompt += f"4. Fornisci insights e raccomandazioni basate su tutti i dati raccolti\n\n"
-                        analysis_prompt += f"IMPORTANTE: Usa SEMPRE i tools get_team_news per ogni squadra prima di rispondere!"
+                        analysis_prompt += f"REGOLE IMPORTANTI:\n"
+                        analysis_prompt += f"- Usa SEMPRE get_team_news per ogni squadra prima di rispondere\n"
+                        analysis_prompt += f"- Quando trovi news, MOSTRALE nel testo con titolo e breve descrizione\n"
+                        analysis_prompt += f"- Quando trovi infortuni, LISTALI con nomi dei giocatori se disponibili\n"
+                        analysis_prompt += f"- Quando trovi formazioni, DESCRIVILE\n"
+                        analysis_prompt += f"- NON dire solo 'ci sono news disponibili', MOSTRALE effettivamente!\n"
+                        analysis_prompt += f"- Formatta la risposta in modo chiaro e leggibile con sezioni ben definite"
                         
                         ai_result = ai_agent.chat(analysis_prompt, context=st.session_state['ai_context'])
                         response = ai_result.get('response', '')
