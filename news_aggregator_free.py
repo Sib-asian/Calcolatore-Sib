@@ -298,6 +298,20 @@ class NewsAggregatorFree:
         if unique_formations:
             print(f"  - Formazioni: {unique_formations}")
         
+        # FALLBACK FINALE: Se non abbiamo trovato nulla, aggiungi almeno informazioni generiche
+        if not unique_injuries and not unique_formations and not unique_unavailable:
+            print(f"DEBUG: Nessun dato trovato per {team_name}, aggiungo info generica...")
+            # Prova una ricerca generica finale con NewsAPI
+            try:
+                generic_news = self._get_news_from_newsapi(team_name, max_results=3)
+                if generic_news:
+                    # Estrai almeno il titolo della prima news come informazione
+                    first_news = generic_news[0]
+                    result['match_notes'] = [f"Ultime news: {first_news.get('title', '')[:100]}"]
+                    print(f"DEBUG: Aggiunta news generica: {first_news.get('title', '')[:50]}")
+            except Exception as e:
+                print(f"DEBUG: Errore fallback finale: {e}")
+        
         # Salva in cache
         self.cache.save_news(team_name, result)
         

@@ -195,8 +195,15 @@ class AIAgentGroq:
                 for formation in formations[:2]:  # Max 2 formazioni
                     formatted_output.append(f"- {formation}")
             
+            # Se non abbiamo info essenziali, mostra almeno le note match-day se disponibili
             if not formatted_output:
-                formatted_output.append(f"**Nessuna informazione essenziale trovata per {team_name}**")
+                match_notes = news_data.get('match_notes', [])
+                if match_notes:
+                    formatted_output.append(f"**Note Match-Day per {team_name}:**")
+                    for note in match_notes[:3]:
+                        formatted_output.append(f"- {note}")
+                else:
+                    formatted_output.append(f"**Nessuna informazione essenziale trovata per {team_name}**")
             
             # Restituisci sia formato strutturato che testo pre-formattato
             return {
