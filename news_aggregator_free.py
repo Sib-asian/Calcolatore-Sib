@@ -245,6 +245,16 @@ class NewsAggregatorFree:
         result['formations'] = unique_formations[:5]  # Max 5 formazioni
         result['unavailable'] = unique_unavailable[:10]  # Max 10 indisponibili
         
+        # DEBUG: Stampa riepilogo finale
+        print(f"DEBUG FINALE per {team_name}:")
+        print(f"  - Infortuni trovati: {len(unique_injuries)}")
+        print(f"  - Formazioni trovate: {len(unique_formations)}")
+        print(f"  - Indisponibili trovati: {len(unique_unavailable)}")
+        if unique_injuries:
+            print(f"  - Esempio infortuni: {[i.get('player', 'N/A') if isinstance(i, dict) else str(i)[:30] for i in unique_injuries[:3]]}")
+        if unique_formations:
+            print(f"  - Formazioni: {unique_formations}")
+        
         # Salva in cache
         self.cache.save_news(team_name, result)
         
