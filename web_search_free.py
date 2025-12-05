@@ -164,55 +164,41 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query multilingua per infortuni (IT, EN, PT, ES, FR, DE)
+        # Query multilingua per infortuni (PRIORITIZZATE - solo le più efficaci)
         queries = [
-            # Italiano
-            f"{full_name} infortuni oggi",
-            f"{full_name} calciatori infortunati partita",
-            f"{full_name} infortuni calciatori",
-            f"{full_name} squadra infortuni",
-            f"{team_name} infortuni oggi",
-            # Inglese
+            # Priorità 1: Inglese (più risultati)
             f"{full_name} injured players today",
-            f"{full_name} injury list match",
-            f"{full_name} players out injured",
-            f"{full_name} injury news",
-            f"{team_name} injuries today",
-            # Portoghese
+            f"{full_name} injury list",
+            # Priorità 2: Italiano
+            f"{full_name} infortuni oggi",
+            f"{full_name} calciatori infortunati",
+            # Priorità 3: Portoghese (per squadre portoghesi)
             f"{full_name} lesões hoje",
-            f"{full_name} jogadores lesionados",
-            f"{full_name} lesões jogadores",
-            # Spagnolo
+            # Priorità 4: Spagnolo/Francese/Tedesco (solo se necessario)
             f"{full_name} lesiones hoy",
-            f"{full_name} jugadores lesionados",
-            # Francese
-            f"{full_name} blessures aujourd'hui",
-            f"{full_name} joueurs blessés",
-            # Tedesco
-            f"{full_name} verletzungen heute",
-            f"{full_name} verletzte spieler"
+            f"{full_name} blessures aujourd'hui"
         ]
         
         all_results = []
         seen_urls = set()
         
-        # Prova tutte le query (max 20 risultati totali)
+        # Prova query in ordine di priorità (FERMATI DOPO 8-10 RISULTATI BUONI)
         for query in queries:
             try:
-                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
+                results = self.search_web(query, max_results=3)  # Ridotto a 3 per query
                 for r in results:
                     url = r.get('url', '')
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         all_results.append(r)
-                        if len(all_results) >= 20:  # Max 20 risultati totali
+                        if len(all_results) >= 10:  # FERMATI DOPO 10 RISULTATI
                             break
-                if len(all_results) >= 20:
+                if len(all_results) >= 10:
                     break
             except Exception:
                 continue
         
-        return all_results[:20]  # Restituisci fino a 20 risultati
+        return all_results[:10]  # Max 10 risultati (sufficienti per estrarre info)
     
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
         """
@@ -291,54 +277,40 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query multilingua per formazioni (IT, EN, PT, ES, FR, DE)
+        # Query multilingua per formazioni (PRIORITIZZATE - solo le più efficaci)
         queries = [
-            # Italiano
-            f"{full_name} formazione probabile",
-            f"{full_name} formazione ufficiale",
-            f"{full_name} probabile formazione",
-            f"{full_name} formazione partita",
-            f"{team_name} formazione",
-            # Inglese
+            # Priorità 1: Inglese
             f"{full_name} probable lineup",
             f"{full_name} starting XI",
-            f"{full_name} expected lineup",
-            f"{full_name} team lineup",
-            f"{team_name} lineup",
-            # Portoghese
+            # Priorità 2: Italiano
+            f"{full_name} formazione probabile",
+            f"{full_name} probabile formazione",
+            # Priorità 3: Portoghese
             f"{full_name} formação provável",
-            f"{full_name} escalação",
-            # Spagnolo
-            f"{full_name} alineación probable",
-            f"{full_name} formación",
-            # Francese
-            f"{full_name} composition probable",
-            f"{full_name} équipe type",
-            # Tedesco
-            f"{full_name} aufstellung",
-            f"{full_name} wahrscheinliche aufstellung"
+            # Priorità 4: Altre lingue
+            f"{full_name} alineación probable"
         ]
         
         all_results = []
         seen_urls = set()
         
-        # Prova tutte le query (max 20 risultati totali)
+        # Prova query in ordine di priorità (FERMATI DOPO 8-10 RISULTATI BUONI)
         for query in queries:
             try:
-                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
+                results = self.search_web(query, max_results=3)  # Ridotto a 3 per query
                 for r in results:
                     url = r.get('url', '')
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         all_results.append(r)
-                        if len(all_results) >= 20:  # Max 20 risultati totali
+                        if len(all_results) >= 10:  # FERMATI DOPO 10 RISULTATI
                             break
-                if len(all_results) >= 20:
+                if len(all_results) >= 10:
                     break
             except Exception:
                 continue
         
-        return all_results[:20]  # Restituisci fino a 20 risultati
+        return all_results[:10]  # Max 10 risultati (sufficienti per estrarre info)
     
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
         """

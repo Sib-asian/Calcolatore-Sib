@@ -31,9 +31,9 @@ CACHE_NEWS_TTL_HOURS = 24  # News valide per 24h
 CACHE_SEARCH_TTL_HOURS = 6  # Ricerche valide per 6h
 CACHE_DB_PATH = "ai_cache.db"  # SQLite database path
 
-# Rate limiting
+# Rate limiting (OTTIMIZZATO per velocità)
 GROQ_RATE_LIMIT_PER_MINUTE = 30  # Limite Groq
-DUCKDUCKGO_RATE_LIMIT_PER_MINUTE = 10  # Limite conservativo DuckDuckGo
+DUCKDUCKGO_RATE_LIMIT_PER_MINUTE = 30  # AUMENTATO: 30 richieste/minuto (più veloce)
 NEWS_API_RATE_LIMIT_PER_DAY = 100  # Limite NewsAPI free tier
 
 # Timeout settings
