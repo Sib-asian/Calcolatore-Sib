@@ -51,18 +51,30 @@ class CacheManager:
     
     def _cleanup_expired(self):
         """Rimuove entry scadute (chiamato automaticamente)"""
+        # Assicura che il database sia inizializzato
+        self._init_database()
+        
         conn = sqlite3.connect(self.db_path)
         cursor = conn.cursor()
         now = time.time()
         
-        cursor.execute('DELETE FROM news_cache WHERE expires_at < ?', (now,))
-        cursor.execute('DELETE FROM search_cache WHERE expires_at < ?', (now,))
+        try:
+            cursor.execute('DELETE FROM news_cache WHERE expires_at < ?', (now,))
+            cursor.execute('DELETE FROM search_cache WHERE expires_at < ?', (now,))
+            conn.commit()
+        except sqlite3.OperationalError:
+            # Se le tabelle non esistono, reinizializza
+            conn.close()
+            self._init_database()
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
         
-        conn.commit()
         conn.close()
     
     def get_cached_news(self, team_name: str) -> Optional[Dict[str, Any]]:
         """Recupera news dalla cache se valide"""
+        # Assicura che il database sia inizializzato
+        self._init_database()
         self._cleanup_expired()
         
         conn = sqlite3.connect(self.db_path)
@@ -100,6 +112,8 @@ class CacheManager:
     
     def get_cached_search(self, query: str) -> Optional[List[Dict[str, Any]]]:
         """Recupera risultati ricerca dalla cache se validi"""
+        # Assicura che il database sia inizializzato
+        self._init_database()
         self._cleanup_expired()
         
         conn = sqlite3.connect(self.db_path)
