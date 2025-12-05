@@ -138,6 +138,12 @@ class NewsAggregatorFree:
         try:
             injuries_results = self.web_search.search_injuries(team_name)
             print(f"DEBUG: Trovati {len(injuries_results)} risultati per infortuni {team_name}")
+            if not injuries_results:
+                print(f"DEBUG: Nessun risultato per infortuni {team_name}, provo query generiche...")
+                # FALLBACK: prova query generiche se quelle specifiche non funzionano
+                generic_results = self.web_search.search_web(f"{team_name} news", max_results=5)
+                injuries_results = generic_results
+            
             for injury_result in injuries_results:
                 title = injury_result.get('title', '')
                 snippet = injury_result.get('snippet', '')
@@ -147,6 +153,13 @@ class NewsAggregatorFree:
                 if parsed.get('injuries'):
                     all_injuries.extend(parsed['injuries'])
                     print(f"DEBUG: Estratti {len(parsed['injuries'])} infortuni da: {title[:50]}")
+                # FALLBACK: se il parsing non trova infortuni strutturati, cerca keywords nel testo
+                elif any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato', 'lesionado', 'blessé']):
+                    # Estrai nomi dal testo anche senza pattern strutturati
+                    players = self.text_parser.extract_player_names(full_text, max_names=3)
+                    for player in players:
+                        all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
+                        print(f"DEBUG: Estratto infortunio fallback: {player}")
         except Exception as e:
             print(f"Errore ricerca infortuni: {e}")
         
@@ -154,6 +167,12 @@ class NewsAggregatorFree:
         try:
             lineup_results = self.web_search.search_lineup(team_name)
             print(f"DEBUG: Trovati {len(lineup_results)} risultati per formazioni {team_name}")
+            if not lineup_results:
+                print(f"DEBUG: Nessun risultato per formazioni {team_name}, provo query generiche...")
+                # FALLBACK: prova query generiche
+                generic_results = self.web_search.search_web(f"{team_name} lineup", max_results=5)
+                lineup_results = generic_results
+            
             for lineup_result in lineup_results:
                 title = lineup_result.get('title', '')
                 snippet = lineup_result.get('snippet', '')
@@ -161,6 +180,13 @@ class NewsAggregatorFree:
                 if parsed.get('formations'):
                     all_formations.extend(parsed['formations'])
                     print(f"DEBUG: Estratte {len(parsed['formations'])} formazioni da: {title[:50]}")
+                # FALLBACK: cerca pattern formazioni nel testo anche senza parsing strutturato
+                else:
+                    full_text = f"{title} {snippet}"
+                    formations_found = self.text_parser.extract_formations(full_text)
+                    if formations_found:
+                        all_formations.extend(formations_found)
+                        print(f"DEBUG: Estratte formazioni fallback: {formations_found}")
         except Exception as e:
             print(f"Errore ricerca formazioni: {e}")
         

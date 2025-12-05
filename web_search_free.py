@@ -164,19 +164,23 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query multilingua per infortuni (PRIORITIZZATE - solo le più efficaci)
+        # Query multilingua per infortuni (PRIORITIZZATE + FALLBACK generiche)
         queries = [
             # Priorità 1: Inglese (più risultati)
             f"{full_name} injured players today",
             f"{full_name} injury list",
+            f"{full_name} injuries",
             # Priorità 2: Italiano
             f"{full_name} infortuni oggi",
             f"{full_name} calciatori infortunati",
+            f"{full_name} infortuni",
             # Priorità 3: Portoghese (per squadre portoghesi)
             f"{full_name} lesões hoje",
-            # Priorità 4: Spagnolo/Francese/Tedesco (solo se necessario)
-            f"{full_name} lesiones hoy",
-            f"{full_name} blessures aujourd'hui"
+            f"{full_name} lesionados",
+            # Priorità 4: Query generiche (FALLBACK se le specifiche non funzionano)
+            f"{full_name} news",
+            f"{team_name} news",
+            f"{full_name} latest news"
         ]
         
         all_results = []
@@ -195,7 +199,8 @@ class WebSearchFree:
                             break
                 if len(all_results) >= 10:
                     break
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Errore query '{query}': {e}")
                 continue
         
         return all_results[:10]  # Max 10 risultati (sufficienti per estrarre info)
@@ -213,18 +218,22 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query multilingua per indisponibili (PRIORITIZZATE - solo le più efficaci)
+        # Query multilingua per indisponibili (PRIORITIZZATE + FALLBACK generiche)
         queries = [
             # Priorità 1: Inglese
             f"{full_name} suspended players",
             f"{full_name} banned players",
+            f"{full_name} unavailable",
             # Priorità 2: Italiano
             f"{full_name} squalificati oggi",
             f"{full_name} sospesi partita",
+            f"{full_name} indisponibili",
             # Priorità 3: Portoghese
             f"{full_name} suspensos",
-            # Priorità 4: Altre lingue
-            f"{full_name} suspendidos"
+            f"{full_name} indisponíveis",
+            # Priorità 4: Query generiche (FALLBACK)
+            f"{full_name} team news",
+            f"{team_name} news"
         ]
         
         all_results = []
@@ -243,7 +252,8 @@ class WebSearchFree:
                             break
                 if len(all_results) >= 10:
                     break
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Errore query '{query}': {e}")
                 continue
         
         return all_results[:10]  # Max 10 risultati (sufficienti per estrarre info)
@@ -261,18 +271,22 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query multilingua per formazioni (PRIORITIZZATE - solo le più efficaci)
+        # Query multilingua per formazioni (PRIORITIZZATE + FALLBACK generiche)
         queries = [
             # Priorità 1: Inglese
             f"{full_name} probable lineup",
             f"{full_name} starting XI",
+            f"{full_name} lineup",
             # Priorità 2: Italiano
             f"{full_name} formazione probabile",
             f"{full_name} probabile formazione",
+            f"{full_name} formazione",
             # Priorità 3: Portoghese
             f"{full_name} formação provável",
-            # Priorità 4: Altre lingue
-            f"{full_name} alineación probable"
+            f"{full_name} escalação",
+            # Priorità 4: Query generiche (FALLBACK)
+            f"{full_name} team news",
+            f"{team_name} news"
         ]
         
         all_results = []
@@ -291,7 +305,8 @@ class WebSearchFree:
                             break
                 if len(all_results) >= 10:
                     break
-            except Exception:
+            except Exception as e:
+                print(f"DEBUG: Errore query '{query}': {e}")
                 continue
         
         return all_results[:10]  # Max 10 risultati (sufficienti per estrarre info)
