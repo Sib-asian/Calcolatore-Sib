@@ -190,6 +190,49 @@ class WebSearchFree:
         
         return all_results[:3]
     
+    def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
+        """
+        Cerca giocatori indisponibili (squalificati, sospesi) per una squadra
+        
+        Args:
+            team_name: Nome della squadra
+            
+        Returns:
+            Lista di risultati con 'title', 'snippet', 'url'
+        """
+        # Ottieni nome completo
+        full_name, _ = self.team_search.get_team_search_queries(team_name)
+        
+        # Query specifiche per indisponibili
+        queries = [
+            f"{full_name} squalificati",
+            f"{full_name} sospesi",
+            f"{full_name} indisponibili",
+            f"{full_name} assenti",
+            f"{team_name} squalificati oggi",
+            f"{team_name} indisponibili partita"
+        ]
+        
+        all_results = []
+        seen_urls = set()
+        
+        for query in queries[:3]:  # Max 3 query
+            try:
+                results = self.search_web(query, max_results=2)
+                for r in results:
+                    url = r.get('url', '')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results.append(r)
+                        if len(all_results) >= 5:
+                            break
+                if len(all_results) >= 5:
+                    break
+            except Exception:
+                continue
+        
+        return all_results[:5]
+    
     def search_lineup(self, team_name: str) -> List[Dict[str, Any]]:
         """
         Cerca informazioni su formazioni usando nome completo
@@ -228,4 +271,47 @@ class WebSearchFree:
                 break
         
         return all_results[:3]
+    
+    def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
+        """
+        Cerca giocatori indisponibili (squalificati, sospesi) per una squadra
+        
+        Args:
+            team_name: Nome della squadra
+            
+        Returns:
+            Lista di risultati con 'title', 'snippet', 'url'
+        """
+        # Ottieni nome completo
+        full_name, _ = self.team_search.get_team_search_queries(team_name)
+        
+        # Query specifiche per indisponibili
+        queries = [
+            f"{full_name} squalificati",
+            f"{full_name} sospesi",
+            f"{full_name} indisponibili",
+            f"{full_name} assenti",
+            f"{team_name} squalificati oggi",
+            f"{team_name} indisponibili partita"
+        ]
+        
+        all_results = []
+        seen_urls = set()
+        
+        for query in queries[:3]:  # Max 3 query
+            try:
+                results = self.search_web(query, max_results=2)
+                for r in results:
+                    url = r.get('url', '')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results.append(r)
+                        if len(all_results) >= 5:
+                            break
+                if len(all_results) >= 5:
+                    break
+            except Exception:
+                continue
+        
+        return all_results[:5]
 
