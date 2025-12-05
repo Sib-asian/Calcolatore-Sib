@@ -6,6 +6,20 @@ import re
 from typing import List, Dict, Any, Optional, Tuple
 from collections import Counter
 
+# Prova a importare spacy per NLP avanzato (opzionale)
+try:
+    import spacy
+    SPACY_AVAILABLE = True
+    try:
+        nlp = spacy.load('it_core_news_sm')
+    except OSError:
+        # Modello non installato, usa solo regex
+        nlp = None
+        SPACY_AVAILABLE = False
+except ImportError:
+    SPACY_AVAILABLE = False
+    nlp = None
+
 class TextParserAdvanced:
     """Parser avanzato per estrarre informazioni strutturate da testi calcistici"""
     
