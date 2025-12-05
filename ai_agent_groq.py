@@ -161,28 +161,55 @@ class AIAgentGroq:
                     "title": lineup.get("title", "")[:100] if isinstance(lineup, dict) else str(lineup)[:100]
                 })
             
-            # Prepara messaggio esplicito per AI
-            summary = []
-            if news_truncated:
-                summary.append(f"Trovate {len(news_truncated)} news")
-            if injuries_truncated:
-                summary.append(f"Trovati {len(injuries_truncated)} infortuni")
-            if formations:
-                summary.append(f"Trovate {len(formations)} formazioni")
-            if players_mentioned:
-                summary.append(f"Trovati {len(players_mentioned)} giocatori menzionati")
+            # Prepara messaggio FORMATTATO che l'AI deve mostrare direttamente
+            formatted_output = []
             
+            if news_truncated:
+                formatted_output.append(f"**News per {team_name}:**")
+                for i, news in enumerate(news_truncated, 1):
+                    title = news.get('title', '')
+                    snippet = news.get('snippet', '')
+                    if title:
+                        formatted_output.append(f"{i}. {title}")
+                        if snippet:
+                            formatted_output.append(f"   {snippet}")
+            
+            if injuries_truncated:
+                formatted_output.append(f"\n**Infortuni per {team_name}:**")
+                for injury in injuries_truncated:
+                    if isinstance(injury, dict):
+                        player = injury.get('player', '')
+                        status = injury.get('status', '')
+                        if player:
+                            formatted_output.append(f"- {player} ({status})")
+                    else:
+                        formatted_output.append(f"- {injury}")
+            
+            if formations:
+                formatted_output.append(f"\n**Formazioni per {team_name}:**")
+                for formation in formations:
+                    formatted_output.append(f"- {formation}")
+            
+            if players_mentioned:
+                formatted_output.append(f"\n**Giocatori chiave per {team_name}:**")
+                for player in players_mentioned[:5]:  # Max 5
+                    formatted_output.append(f"- {player}")
+            
+            if not formatted_output:
+                formatted_output.append(f"**Nessuna news/infortunio trovato per {team_name}**")
+            
+            # Restituisci sia formato strutturato che testo pre-formattato
             return {
                 "success": True,
                 "team": team_name,
                 "news": news_truncated,
                 "injuries": injuries_truncated,
-                "formations": formations,  # Nuovo campo
-                "players_mentioned": players_mentioned,  # Nuovo campo
+                "formations": formations,
+                "players_mentioned": players_mentioned,
                 "lineup": lineup_truncated,
                 "source": news_data.get("source", "unknown"),
-                "summary": " | ".join(summary) if summary else "Nessun dato trovato",
-                "instruction": "MOSTRA SEMPRE i titoli delle news, i nomi dei giocatori infortunati e le formazioni se presenti!"
+                "formatted_text": "\n".join(formatted_output),  # Testo pre-formattato da mostrare
+                "instruction": "USA IL CAMPO 'formatted_text' E MOSTRALO DIRETTAMENTE NELLA TUA RISPOSTA!"
             }
         
         elif tool_name == "calculate_probabilities":
@@ -261,12 +288,12 @@ REGOLE CRITICHE:
 7. Quando usi get_team_news: MOSTRA SEMPRE i dettagli trovati!
 
 FORMATO OBBLIGATORIO per get_team_news:
-- Se get_team_news restituisce 'news': MOSTRA i titoli delle news (max 3)
-- Se get_team_news restituisce 'injuries': MOSTRA i nomi dei giocatori infortunati con status
-- Se get_team_news restituisce 'formations': MOSTRA le formazioni trovate (es: "4-3-3")
-- Se get_team_news restituisce 'players_mentioned': MENZIONA i giocatori chiave
-- Se get_team_news restituisce array vuoti: scrivi "Nessuna news/infortunio trovato"
-- NON dire solo "ci sono news disponibili" - MOSTRALE!
+- Il tool get_team_news restituisce un campo 'formatted_text' con il testo già formattato
+- DEVI COPIARE E INCOLLARE IL CAMPO 'formatted_text' DIRETTAMENTE NELLA TUA RISPOSTA
+- NON riscrivere o riassumere: USA ESATTAMENTE il testo del campo 'formatted_text'
+- Se 'formatted_text' contiene news/infortuni/formazioni, MOSTRALI TUTTI
+- Se 'formatted_text' dice "Nessuna news trovato", scrivi esattamente quello
+- NON inventare o generalizzare: USA SOLO il testo di 'formatted_text'
 
 STRUMENTI:
 - calculate_probabilities: OBBLIGATORIO se spread/total nel context. Restituisce 'opening' e 'current'. USA SEMPRE 'current'!
