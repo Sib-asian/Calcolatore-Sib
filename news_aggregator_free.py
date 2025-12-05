@@ -11,6 +11,7 @@ from cache_manager import CacheManager
 from web_search_free import WebSearchFree
 from team_search_intelligent import TeamSearchIntelligent
 from text_parser_advanced import TextParserAdvanced
+from google_news_rss import GoogleNewsRSS
 
 # RSS Feeds opzionale (richiede feedparser che può avere problemi di dipendenze)
 try:
@@ -27,6 +28,7 @@ class NewsAggregatorFree:
         self.cache = CacheManager()
         self.web_search = WebSearchFree()
         self.team_search = TeamSearchIntelligent()
+        self.google_news = GoogleNewsRSS()  # FONTE PRINCIPALE - gratuita e affidabile
         self.rss_aggregator = RSSFeedsAggregator() if RSS_AVAILABLE else None
         self.text_parser = TextParserAdvanced()
         self.news_api_requests_today = 0
@@ -54,11 +56,14 @@ class NewsAggregatorFree:
             # Ottieni nome completo squadra
             full_name, _ = self.team_search.get_team_search_queries(team_name)
 
-            # Query ottimizzata: SEMPLICI per massimizzare risultati
-            # NewsAPI free tier ha pochi articoli recenti, query troppo complesse = 0 risultati
+            # Query ottimizzata con contesto sport per massimizzare risultati
+            # NewsAPI free tier richiede contesto per trovare articoli su squadre specifiche
             queries = [
-                f"{full_name}",  # Nome completo
-                f"{team_name}"   # Nome originale come fallback
+                f"{full_name} football",  # Nome completo + contesto
+                f"{full_name} soccer",     # Variante americana
+                f"{team_name} football",   # Nome originale + contesto
+                f"{full_name}",            # Fallback senza contesto
+                f"{team_name}"             # Ultimo tentativo
             ]
 
             url = f"{config.NEWS_API_BASE_URL}/everything"
@@ -153,50 +158,109 @@ class NewsAggregatorFree:
         all_injuries = []
         all_formations = []
         all_unavailable = []
-        
-        # PRIORITÀ 1: Prova NewsAPI (più affidabile di DuckDuckGo)
+
+        # PRIORITÀ 1: Google News RSS (GRATUITO, affidabile, nessuna API key)
         try:
-            print(f"DEBUG: Provo NewsAPI per {team_name}...")
-            newsapi_results = self._get_news_from_newsapi(team_name)
-            print(f"DEBUG: NewsAPI trovati {len(newsapi_results) if newsapi_results else 0} risultati")
-            
-            # Processa risultati NewsAPI
-            if newsapi_results:
-                for article in newsapi_results:
-                    title = article.get('title', '')
-                    description = article.get('description', '')
-                    content = article.get('content', '')
-                    full_text = f"{title} {description} {content}"
-                    
-                    # Cerca infortuni
-                    parsed = self.text_parser.parse_news_article(title, description or content)
-                    if parsed.get('injuries'):
-                        all_injuries.extend(parsed['injuries'])
-                        print(f"DEBUG: NewsAPI - Estratti {len(parsed['injuries'])} infortuni")
-                    
-                    # Cerca formazioni
-                    if parsed.get('formations'):
-                        all_formations.extend(parsed['formations'])
-                        print(f"DEBUG: NewsAPI - Estratte {len(parsed['formations'])} formazioni")
-                    
-                    # FALLBACK: cerca keywords anche senza parsing strutturato
-                    if any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato']):
-                        players = self.text_parser.extract_player_names(full_text, max_names=3)
-                        for player in players:
-                            if not any(i.get('player', '') == player for i in all_injuries if isinstance(i, dict)):
-                                all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
-                                print(f"DEBUG: NewsAPI - Estratto infortunio fallback: {player}")
-                    
-                    # Cerca formazioni anche senza parsing strutturato
-                    formations_found = self.text_parser.extract_formations(full_text)
-                    if formations_found:
-                        all_formations.extend(formations_found)
-                        print(f"DEBUG: NewsAPI - Estratte formazioni fallback: {formations_found}")
+            print(f"DEBUG: Provo Google News RSS per {team_name}...")
+
+            # Cerca infortuni
+            injuries_articles = self.google_news.search_injuries(team_name)
+            print(f"DEBUG: Google News trovati {len(injuries_articles)} articoli su infortuni")
+
+            for article in injuries_articles:
+                title = article.get('title', '')
+                description = article.get('description', '')
+                parsed = self.text_parser.parse_news_article(title, description)
+
+                if parsed.get('injuries'):
+                    all_injuries.extend(parsed['injuries'])
+                    print(f"DEBUG: Google News - Estratti {len(parsed['injuries'])} infortuni")
+
+            # Cerca formazioni
+            lineup_articles = self.google_news.search_lineup(team_name)
+            print(f"DEBUG: Google News trovati {len(lineup_articles)} articoli su formazioni")
+
+            for article in lineup_articles:
+                title = article.get('title', '')
+                description = article.get('description', '')
+                parsed = self.text_parser.parse_news_article(title, description)
+
+                if parsed.get('formations'):
+                    all_formations.extend(parsed['formations'])
+                    print(f"DEBUG: Google News - Estratte {len(parsed['formations'])} formazioni")
+
+                # Estrai formazioni anche dal testo
+                full_text = f"{title} {description}"
+                formations_found = self.text_parser.extract_formations(full_text)
+                if formations_found:
+                    all_formations.extend(formations_found)
+
+            # Cerca indisponibili
+            unavailable_articles = self.google_news.search_unavailable(team_name)
+            print(f"DEBUG: Google News trovati {len(unavailable_articles)} articoli su indisponibili")
+
+            for article in unavailable_articles:
+                title = article.get('title', '')
+                description = article.get('description', '')
+                parsed = self.text_parser.parse_news_article(title, description)
+
+                if parsed.get('injuries'):
+                    for injury in parsed['injuries']:
+                        if isinstance(injury, dict):
+                            status = injury.get('status', '').lower()
+                            full_text = f"{title} {description}".lower()
+                            if any(kw in status or kw in full_text for kw in ['suspended', 'squalificato', 'sospeso', 'banned']):
+                                all_unavailable.append(injury)
+
         except Exception as e:
-            print(f"DEBUG: Errore NewsAPI: {e}")
-        
-        # PRIORITÀ 2: Prova DuckDuckGo solo se NewsAPI non ha trovato abbastanza risultati
+            print(f"DEBUG: Errore Google News RSS: {e}")
+
+        # PRIORITÀ 2: Prova NewsAPI solo se Google News non ha trovato abbastanza (fallback)
+        # Salta se abbiamo già abbastanza dati da Google News
         if len(all_injuries) < 3:
+            try:
+                print(f"DEBUG: Google News insufficiente, provo NewsAPI per {team_name}...")
+                newsapi_results = self._get_news_from_newsapi(team_name)
+                print(f"DEBUG: NewsAPI trovati {len(newsapi_results) if newsapi_results else 0} risultati")
+
+                # Processa risultati NewsAPI
+                if newsapi_results:
+                    for article in newsapi_results:
+                        title = article.get('title', '')
+                        description = article.get('description', '')
+                        content = article.get('content', '')
+                        full_text = f"{title} {description} {content}"
+
+                        # Cerca infortuni
+                        parsed = self.text_parser.parse_news_article(title, description or content)
+                        if parsed.get('injuries'):
+                            all_injuries.extend(parsed['injuries'])
+                            print(f"DEBUG: NewsAPI - Estratti {len(parsed['injuries'])} infortuni")
+
+                        # Cerca formazioni
+                        if parsed.get('formations'):
+                            all_formations.extend(parsed['formations'])
+                            print(f"DEBUG: NewsAPI - Estratte {len(parsed['formations'])} formazioni")
+
+                        # FALLBACK: cerca keywords anche senza parsing strutturato
+                        if any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato']):
+                            players = self.text_parser.extract_player_names(full_text, max_names=3)
+                            for player in players:
+                                if not any(i.get('player', '') == player for i in all_injuries if isinstance(i, dict)):
+                                    all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
+                                    print(f"DEBUG: NewsAPI - Estratto infortunio fallback: {player}")
+
+                        # Cerca formazioni anche senza parsing strutturato
+                        formations_found = self.text_parser.extract_formations(full_text)
+                        if formations_found:
+                            all_formations.extend(formations_found)
+                            print(f"DEBUG: NewsAPI - Estratte formazioni fallback: {formations_found}")
+            except Exception as e:
+                print(f"DEBUG: Errore NewsAPI: {e}")
+        
+        # PRIORITÀ 3: Prova DuckDuckGo solo se abbiamo ancora pochi dati
+        # (di solito non serve se Google News funziona)
+        if len(all_injuries) < 2 and len(all_formations) < 1:
             try:
                 print(f"DEBUG: NewsAPI insufficiente, provo DuckDuckGo per {team_name}...")
                 injuries_results = self.web_search.search_injuries(team_name)
