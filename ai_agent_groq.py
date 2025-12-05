@@ -245,16 +245,26 @@ REGOLE CRITICHE:
 4. Mostra probabilità con PERCENTUALI ESATTE (es: "Casa 28.4%, X 20.6%, Trasferta 51.0%")
 5. NON inventare: se non hai dati, scrivi "Nessun dato disponibile"
 6. Ogni raccomandazione DEVE citare probabilità CORRENTI o spread/total CORRENTI
-7. Quando usi get_team_news: mostra SOLO dati reali trovati, NON generalizzare
+7. Quando usi get_team_news: MOSTRA SEMPRE i dettagli trovati!
+
+FORMATO OBBLIGATORIO per get_team_news:
+- Se get_team_news restituisce 'news': MOSTRA i titoli delle news (max 3)
+- Se get_team_news restituisce 'injuries': MOSTRA i nomi dei giocatori infortunati con status
+- Se get_team_news restituisce 'formations': MOSTRA le formazioni trovate (es: "4-3-3")
+- Se get_team_news restituisce 'players_mentioned': MENZIONA i giocatori chiave
+- Se get_team_news restituisce array vuoti: scrivi "Nessuna news/infortunio trovato"
+- NON dire solo "ci sono news disponibili" - MOSTRALE!
 
 STRUMENTI:
 - calculate_probabilities: OBBLIGATORIO se spread/total nel context. Restituisce 'opening' e 'current'. USA SEMPRE 'current'!
-- get_team_news: News/infortuni/formazioni (solo dati reali)
+- get_team_news: Restituisce 'news', 'injuries', 'formations', 'players_mentioned'. MOSTRA SEMPRE questi dati se presenti!
 - search_web: Ricerca web
 
 FORMATO:
 - Analisi Numerica: cita spread/total CORRENTI e probabilità CORRENTI
-- News: solo se trovate realmente
+- News: MOSTRA titoli e snippet se disponibili
+- Infortuni: MOSTRA nomi giocatori e status se disponibili
+- Formazioni: MOSTRA formazioni trovate se disponibili
 - Raccomandazioni: sempre supportate da numeri CORRENTI"""
         
         if context:

@@ -172,11 +172,29 @@ class NewsAggregatorFree:
         if len(all_news) < 5:
             try:
                 duckduckgo_results = self.web_search.search_news(team_name, max_results=5)
+                # DuckDuckGo results già hanno parsed_info da web_search_free
                 all_news.extend(duckduckgo_results)
                 if result['source'] == 'multiple':
                     result['source'] = 'duckduckgo+rss'
             except Exception as e:
                 print(f"Errore DuckDuckGo: {e}")
+        
+        # 5. Estrai informazioni da tutte le news (aggregazione parsing)
+        for news_item in all_news:
+            # Se ha parsed_info, estrai informazioni
+            parsed_info = news_item.get('parsed_info', {})
+            if parsed_info:
+                # Aggrega giocatori
+                players = parsed_info.get('players_mentioned', [])
+                all_players.extend(players)
+                
+                # Aggrega formazioni
+                formations = parsed_info.get('formations', [])
+                all_formations.extend(formations)
+                
+                # Aggrega infortuni
+                injuries = parsed_info.get('injuries', [])
+                all_injuries.extend(injuries)
         
         # 4. Cerca infortuni e formazioni con DuckDuckGo (se non trovati)
         if not all_injuries:
