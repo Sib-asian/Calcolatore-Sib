@@ -1,6 +1,7 @@
 """
 News Aggregator (Gratuito)
 Utilizza NewsAPI (free tier) + DuckDuckGo come fallback
+Con ricerca intelligente per nomi completi squadre
 """
 import requests
 import time
@@ -8,6 +9,7 @@ from typing import Dict, Any, List, Optional
 import config
 from cache_manager import CacheManager
 from web_search_free import WebSearchFree
+from team_search_intelligent import TeamSearchIntelligent
 
 class NewsAggregatorFree:
     """Aggrega news da NewsAPI e DuckDuckGo con cache intelligente"""
@@ -15,6 +17,7 @@ class NewsAggregatorFree:
     def __init__(self):
         self.cache = CacheManager()
         self.web_search = WebSearchFree()
+        self.team_search = TeamSearchIntelligent()
         self.news_api_requests_today = 0
         self.last_reset_date = time.strftime('%Y-%m-%d')
         self.news_api_available = True
@@ -28,7 +31,7 @@ class NewsAggregatorFree:
             self.news_api_available = True
     
     def _get_news_from_newsapi(self, team_name: str) -> Optional[List[Dict[str, Any]]]:
-        """Recupera news da NewsAPI se disponibile"""
+        """Recupera news da NewsAPI se disponibile usando nome completo squadra"""
         self._check_daily_limit()
         
         # Controlla limite giornaliero
@@ -37,47 +40,64 @@ class NewsAggregatorFree:
             return None
         
         try:
-            # Query ottimizzata per calcio italiano/internazionale
-            query = f"{team_name} AND (calcio OR football OR soccer)"
+            # Ottieni nome completo squadra
+            full_name, _ = self.team_search.get_team_search_queries(team_name)
+            
+            # Query ottimizzata con nome completo
+            # Prova prima con nome completo, poi con originale
+            queries = [
+                f"{full_name} AND (calcio OR football OR soccer)",
+                f"{team_name} AND (calcio OR football OR soccer)"
+            ]
             
             url = f"{config.NEWS_API_BASE_URL}/everything"
-            params = {
-                'q': query,
-                'language': 'it',  # Italiano
-                'sortBy': 'publishedAt',
-                'pageSize': 5,
-                'apiKey': config.NEWS_API_KEY
-            }
             
-            response = requests.get(
-                url,
-                params=params,
-                timeout=config.NEWS_API_TIMEOUT_SECONDS
-            )
+            # Prova prima query (nome completo)
+            for query in queries:
+                params = {
+                    'q': query,
+                    'language': 'it',  # Italiano
+                    'sortBy': 'publishedAt',
+                    'pageSize': 5,
+                    'apiKey': config.NEWS_API_KEY
+                }
             
-            if response.status_code == 200:
-                data = response.json()
-                articles = data.get('articles', [])
+                response = requests.get(
+                    url,
+                    params=params,
+                    timeout=config.NEWS_API_TIMEOUT_SECONDS
+                )
                 
-                # Formatta risultati
-                results = []
-                for article in articles:
-                    if article.get('title') and article.get('description'):
-                        results.append({
-                            'title': article.get('title', ''),
-                            'snippet': article.get('description', ''),
-                            'url': article.get('url', ''),
-                            'date': article.get('publishedAt', ''),
-                            'source': article.get('source', {}).get('name', '')
-                        })
-                
-                self.news_api_requests_today += 1
-                return results if results else None
-            else:
-                # Se errore, disabilita NewsAPI per oggi
-                if response.status_code == 429:  # Too many requests
-                    self.news_api_available = False
-                return None
+                if response.status_code == 200:
+                    data = response.json()
+                    articles = data.get('articles', [])
+                    
+                    # Formatta risultati
+                    results = []
+                    for article in articles:
+                        if article.get('title') and article.get('description'):
+                            results.append({
+                                'title': article.get('title', ''),
+                                'snippet': article.get('description', ''),
+                                'url': article.get('url', ''),
+                                'date': article.get('publishedAt', ''),
+                                'source': article.get('source', {}).get('name', '')
+                            })
+                    
+                    # Se troviamo risultati, restituiscili
+                    if results:
+                        self.news_api_requests_today += 1
+                        return results
+                else:
+                    # Se errore, disabilita NewsAPI per oggi
+                    if response.status_code == 429:  # Too many requests
+                        self.news_api_available = False
+                        return None
+                    # Continua con prossima query se questa fallisce
+                    continue
+            
+            # Se nessuna query ha funzionato
+            return None
                 
         except Exception as e:
             print(f"Errore NewsAPI: {e}")

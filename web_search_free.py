@@ -1,18 +1,21 @@
 """
 Web Search Module (Gratuito)
 Utilizza DuckDuckGo per ricerche web senza API key
+Con ricerca intelligente multi-variante e Wikipedia lookup
 """
 import time
 from typing import List, Dict, Any, Optional
 from duckduckgo_search import DDGS
 import config
 from cache_manager import CacheManager
+from team_search_intelligent import TeamSearchIntelligent
 
 class WebSearchFree:
     """Gestisce ricerche web gratuite tramite DuckDuckGo"""
     
     def __init__(self):
         self.cache = CacheManager()
+        self.team_search = TeamSearchIntelligent()
         self.last_request_time = 0
         self.min_request_interval = 60 / config.DUCKDUCKGO_RATE_LIMIT_PER_MINUTE  # Secondi tra richieste
     
@@ -66,7 +69,7 @@ class WebSearchFree:
     
     def search_news(self, team_name: str, max_results: int = 3) -> List[Dict[str, Any]]:
         """
-        Cerca news specifiche per una squadra
+        Cerca news specifiche per una squadra usando ricerca intelligente
         
         Args:
             team_name: Nome della squadra
@@ -75,11 +78,11 @@ class WebSearchFree:
         Returns:
             Lista di news con 'title', 'snippet', 'url', 'date'
         """
-        # Query ottimizzata per news calcio
-        query = f"{team_name} calcio news ultime notizie"
+        # Ottieni nome completo e query varianti
+        full_name, query_variants = self.team_search.get_team_search_queries(team_name)
         
         # Controlla cache
-        cache_key = f"news_{team_name}"
+        cache_key = f"news_{team_name.lower()}"
         cached = self.cache.get_cached_search(cache_key)
         if cached:
             return cached[:max_results]
@@ -87,44 +90,140 @@ class WebSearchFree:
         # Rate limiting
         self._rate_limit()
         
+        all_results = []
+        seen_urls = set()
+        
         try:
             with DDGS() as ddgs:
-                results = []
-                # Cerca news recenti
-                for r in ddgs.news(f"{team_name} calcio", max_results=max_results):
-                    results.append({
-                        'title': r.get('title', ''),
-                        'snippet': r.get('body', ''),
-                        'url': r.get('url', ''),
-                        'date': r.get('date', '')
-                    })
-                
-                # Se non trova news, prova ricerca normale
-                if not results:
-                    for r in ddgs.text(query, max_results=max_results):
-                        results.append({
-                            'title': r.get('title', ''),
-                            'snippet': r.get('body', ''),
-                            'url': r.get('href', ''),
-                            'date': ''
-                        })
+                # Prova ogni variante di query
+                for query in query_variants[:5]:  # Max 5 varianti per evitare troppe richieste
+                    try:
+                        # Prova prima news specifiche
+                        for r in ddgs.news(query, max_results=max_results):
+                            url = r.get('url', '')
+                            if url and url not in seen_urls:
+                                seen_urls.add(url)
+                                all_results.append({
+                                    'title': r.get('title', ''),
+                                    'snippet': r.get('body', ''),
+                                    'url': url,
+                                    'date': r.get('date', '')
+                                })
+                                
+                                if len(all_results) >= max_results:
+                                    break
+                        
+                        # Se abbiamo abbastanza risultati, fermati
+                        if len(all_results) >= max_results:
+                            break
+                            
+                        # Se non trova news, prova ricerca normale
+                        if len(all_results) < max_results:
+                            for r in ddgs.text(query, max_results=2):
+                                url = r.get('href', '')
+                                if url and url not in seen_urls:
+                                    seen_urls.add(url)
+                                    all_results.append({
+                                        'title': r.get('title', ''),
+                                        'snippet': r.get('body', ''),
+                                        'url': url,
+                                        'date': ''
+                                    })
+                                    
+                                    if len(all_results) >= max_results:
+                                        break
+                        
+                        if len(all_results) >= max_results:
+                            break
+                            
+                    except Exception as e:
+                        # Continua con prossima query se questa fallisce
+                        continue
                 
                 # Salva in cache
-                if results:
-                    self.cache.save_search(cache_key, results, ttl_hours=24)
+                if all_results:
+                    self.cache.save_search(cache_key, all_results, ttl_hours=24)
                 
-                return results
+                return all_results[:max_results]
         except Exception as e:
             print(f"Errore ricerca news DuckDuckGo: {e}")
             return []
     
     def search_injuries(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca informazioni su infortuni squadra"""
-        query = f"{team_name} infortuni calciatori"
-        return self.search_web(query, max_results=3)
+        """
+        Cerca informazioni su infortuni squadra usando nome completo
+        
+        Args:
+            team_name: Nome della squadra
+            
+        Returns:
+            Lista di risultati su infortuni
+        """
+        # Ottieni nome completo
+        full_name, _ = self.team_search.get_team_search_queries(team_name)
+        
+        # Query varianti per infortuni
+        queries = [
+            f"{full_name} infortuni",
+            f"{full_name} infortuni calciatori",
+            f"{full_name} injuries",
+            f"{full_name} calciatori infortunati",
+            f"{team_name} infortuni"
+        ]
+        
+        all_results = []
+        seen_urls = set()
+        
+        for query in queries[:3]:  # Prova max 3 query
+            results = self.search_web(query, max_results=2)
+            for r in results:
+                url = r.get('url', '')
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_results.append(r)
+                    if len(all_results) >= 3:
+                        break
+            if len(all_results) >= 3:
+                break
+        
+        return all_results[:3]
     
     def search_lineup(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca informazioni su formazioni"""
-        query = f"{team_name} formazione probabile"
-        return self.search_web(query, max_results=3)
+        """
+        Cerca informazioni su formazioni usando nome completo
+        
+        Args:
+            team_name: Nome della squadra
+            
+        Returns:
+            Lista di risultati su formazioni
+        """
+        # Ottieni nome completo
+        full_name, _ = self.team_search.get_team_search_queries(team_name)
+        
+        # Query varianti per formazioni
+        queries = [
+            f"{full_name} formazione",
+            f"{full_name} formazione probabile",
+            f"{full_name} lineup",
+            f"{full_name} probabile formazione",
+            f"{team_name} formazione"
+        ]
+        
+        all_results = []
+        seen_urls = set()
+        
+        for query in queries[:3]:  # Prova max 3 query
+            results = self.search_web(query, max_results=2)
+            for r in results:
+                url = r.get('url', '')
+                if url and url not in seen_urls:
+                    seen_urls.add(url)
+                    all_results.append(r)
+                    if len(all_results) >= 3:
+                        break
+            if len(all_results) >= 3:
+                break
+        
+        return all_results[:3]
 
