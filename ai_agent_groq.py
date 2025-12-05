@@ -129,16 +129,36 @@ class AIAgentGroq:
                     "snippet": article.get("snippet", "")[:150] if article.get("snippet") else ""  # Max 150 caratteri
                 })
             
+            # Processa infortuni (può essere lista di dict o lista di stringhe)
             injuries_truncated = []
-            for injury in news_data.get("injuries", [])[:2]:  # Max 2 infortuni
-                injuries_truncated.append({
-                    "title": injury.get("title", "")[:100]
-                })
+            injuries_raw = news_data.get("injuries", [])
+            for injury in injuries_raw[:2]:  # Max 2 infortuni
+                if isinstance(injury, dict):
+                    # Nuovo formato: dict con 'player', 'status', 'context'
+                    player = injury.get('player', '')
+                    status = injury.get('status', 'unknown')
+                    injuries_truncated.append({
+                        "player": player[:50],
+                        "status": status,
+                        "info": injury.get('context', '')[:100] if injury.get('context') else ""
+                    })
+                else:
+                    # Vecchio formato: dict con 'title'
+                    injuries_truncated.append({
+                        "title": str(injury.get("title", ""))[:100] if isinstance(injury, dict) else str(injury)[:100]
+                    })
             
+            # Formazioni (lista di stringhe)
+            formations = news_data.get("formations", [])[:3]  # Max 3 formazioni
+            
+            # Giocatori menzionati (lista di stringhe)
+            players_mentioned = news_data.get("players_mentioned", [])[:10]  # Max 10 giocatori
+            
+            # Lineup (mantenuto per compatibilità)
             lineup_truncated = []
             for lineup in news_data.get("lineup", [])[:2]:  # Max 2 formazioni
                 lineup_truncated.append({
-                    "title": lineup.get("title", "")[:100]
+                    "title": lineup.get("title", "")[:100] if isinstance(lineup, dict) else str(lineup)[:100]
                 })
             
             return {
@@ -146,6 +166,8 @@ class AIAgentGroq:
                 "team": team_name,
                 "news": news_truncated,
                 "injuries": injuries_truncated,
+                "formations": formations,  # Nuovo campo
+                "players_mentioned": players_mentioned,  # Nuovo campo
                 "lineup": lineup_truncated,
                 "source": news_data.get("source", "unknown")
             }
