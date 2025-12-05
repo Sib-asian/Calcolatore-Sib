@@ -132,20 +132,20 @@ class AIAgentGroq:
             # Processa infortuni (può essere lista di dict o lista di stringhe)
             injuries_truncated = []
             injuries_raw = news_data.get("injuries", [])
-            for injury in injuries_raw[:2]:  # Max 2 infortuni
+            for injury in injuries_raw[:5]:  # Max 5 infortuni (aumentato)
                 if isinstance(injury, dict):
                     # Nuovo formato: dict con 'player', 'status', 'context'
                     player = injury.get('player', '')
                     status = injury.get('status', 'unknown')
+                    if player and player.strip():  # Solo se player non è vuoto
+                        injuries_truncated.append({
+                            "player": player[:50],
+                            "status": status,
+                            "info": injury.get('context', '')[:100] if injury.get('context') else ""
+                        })
+                elif injury:  # Se è una stringa non vuota
                     injuries_truncated.append({
-                        "player": player[:50],
-                        "status": status,
-                        "info": injury.get('context', '')[:100] if injury.get('context') else ""
-                    })
-                else:
-                    # Vecchio formato: dict con 'title'
-                    injuries_truncated.append({
-                        "title": str(injury.get("title", ""))[:100] if isinstance(injury, dict) else str(injury)[:100]
+                        "title": str(injury)[:100]
                     })
             
             # Formazioni (lista di stringhe)
@@ -453,6 +453,7 @@ FORMATO:
             final_response = message.content or "Non ho potuto generare una risposta."
             
             # FORZA inclusione formatted_text se presente nei tool results
+            # Ma solo se NON è già presente nella risposta (evita duplicazioni)
             formatted_texts = []
             for tool_used in tools_used:
                 if tool_used.get("tool") == "get_team_news":
@@ -460,12 +461,26 @@ FORMATO:
                     if isinstance(result, dict) and result.get("formatted_text"):
                         formatted_texts.append(result["formatted_text"])
             
-            # Se ci sono formatted_texts ma non sono nella risposta, aggiungili
-            if formatted_texts and not any(ft in final_response for ft in formatted_texts):
-                # Aggiungi formatted_texts alla risposta
-                news_section = "\n\n## News e Informazioni\n"
+            # Controlla se formatted_text è già presente nella risposta
+            # (controlla se almeno una parte significativa è presente)
+            text_already_present = False
+            if formatted_texts:
                 for ft in formatted_texts:
-                    news_section += ft + "\n\n"
+                    # Estrai prime 100 caratteri per controllo più accurato
+                    ft_keywords = [w for w in ft.split()[:5] if len(w) > 4 and w.lower() not in ['per', 'news', 'informazioni']]
+                    # Controlla se almeno 2 keyword sono presenti nella risposta
+                    keywords_found = sum(1 for kw in ft_keywords if kw.lower() in final_response.lower())
+                    if keywords_found >= 2:
+                        text_already_present = True
+                        break
+            
+            # Se formatted_texts non sono già presenti, aggiungili
+            if formatted_texts and not text_already_present:
+                # Aggiungi formatted_texts alla risposta (solo una volta)
+                news_section = "\n\n## News e Informazioni\n"
+                # Unisci tutti i formatted_texts in uno solo (evita duplicazioni)
+                combined_text = "\n\n".join(formatted_texts)
+                news_section += combined_text
                 final_response += news_section
             
             # Aggiungi risposta alla history
