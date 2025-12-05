@@ -171,10 +171,34 @@ class AIAgentGroq:
                     spread_current=float(spread_current),
                     total_current=float(total_current)
                 )
-                return {
+                
+                # Estrai probabilità chiave in formato compatto per evitare troncamento
+                current = results.get('Current', {})
+                opening = results.get('Opening', {})
+                
+                # Formato compatto con solo probabilità essenziali
+                compact_results = {
                     "success": True,
-                    "results": results
+                    "spread_opening": spread_opening,
+                    "total_opening": total_opening,
+                    "spread_current": spread_current,
+                    "total_current": total_current,
+                    "opening": {
+                        "1X2": opening.get('1X2', {}),
+                        "GG_NG": opening.get('GG_NG', {}),
+                        "Over_Under": opening.get('Over_Under', {}),
+                        "Expected_Goals": opening.get('Expected_Goals', {})
+                    },
+                    "current": {
+                        "1X2": current.get('1X2', {}),
+                        "GG_NG": current.get('GG_NG', {}),
+                        "Over_Under": current.get('Over_Under', {}),
+                        "Expected_Goals": current.get('Expected_Goals', {})
+                    },
+                    "movement": results.get('Movement', {})
                 }
+                
+                return compact_results
             except ValueError as e:
                 return {
                     "success": False,
@@ -195,20 +219,21 @@ class AIAgentGroq:
 REGOLE CRITICHE:
 1. CITA SEMPRE spread e total nelle analisi (es: "Con spread 0.5 e total 3.0...")
 2. USA calculate_probabilities se spread/total sono nel context
-3. Mostra probabilità con PERCENTUALI ESATTE (es: "Casa 28.4%, X 20.6%")
-4. NON inventare: se non hai dati, scrivi "Nessun dato disponibile"
-5. Ogni raccomandazione DEVE citare probabilità o spread/total
-6. Quando usi get_team_news: mostra SOLO dati reali trovati, NON generalizzare
+3. USA SEMPRE le probabilità CORRENTI (campo 'current'), NON quelle di apertura (campo 'opening')!
+4. Mostra probabilità con PERCENTUALI ESATTE (es: "Casa 28.4%, X 20.6%, Trasferta 51.0%")
+5. NON inventare: se non hai dati, scrivi "Nessun dato disponibile"
+6. Ogni raccomandazione DEVE citare probabilità CORRENTI o spread/total CORRENTI
+7. Quando usi get_team_news: mostra SOLO dati reali trovati, NON generalizzare
 
 STRUMENTI:
-- calculate_probabilities: OBBLIGATORIO se spread/total nel context
+- calculate_probabilities: OBBLIGATORIO se spread/total nel context. Restituisce 'opening' e 'current'. USA SEMPRE 'current'!
 - get_team_news: News/infortuni/formazioni (solo dati reali)
 - search_web: Ricerca web
 
 FORMATO:
-- Analisi Numerica: cita spread/total e probabilità
+- Analisi Numerica: cita spread/total CORRENTI e probabilità CORRENTI
 - News: solo se trovate realmente
-- Raccomandazioni: sempre supportate da numeri"""
+- Raccomandazioni: sempre supportate da numeri CORRENTI"""
         
         if context:
             context_str = "\n\nCONTESTO ATTUALE:\n"
