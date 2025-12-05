@@ -7,3 +7,6 @@ duckduckgo-search>=4.0.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 wikipedia-api>=0.6.0
+spacy>=3.7.0
+feedparser>=6.0.0
+beautifulsoup4>=4.12.0

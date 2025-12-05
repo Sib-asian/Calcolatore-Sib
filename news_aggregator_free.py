@@ -10,6 +10,8 @@ import config
 from cache_manager import CacheManager
 from web_search_free import WebSearchFree
 from team_search_intelligent import TeamSearchIntelligent
+from rss_feeds_aggregator import RSSFeedsAggregator
+from text_parser_advanced import TextParserAdvanced
 
 class NewsAggregatorFree:
     """Aggrega news da NewsAPI e DuckDuckGo con cache intelligente"""
@@ -18,6 +20,8 @@ class NewsAggregatorFree:
         self.cache = CacheManager()
         self.web_search = WebSearchFree()
         self.team_search = TeamSearchIntelligent()
+        self.rss_aggregator = RSSFeedsAggregator()
+        self.text_parser = TextParserAdvanced()
         self.news_api_requests_today = 0
         self.last_reset_date = time.strftime('%Y-%m-%d')
         self.news_api_available = True
@@ -105,13 +109,14 @@ class NewsAggregatorFree:
     
     def get_team_news(self, team_name: str) -> Dict[str, Any]:
         """
-        Recupera news per una squadra
+        Recupera news per una squadra da multiple fonti (RSS, NewsAPI, DuckDuckGo)
+        con parsing avanzato per estrarre nomi, formazioni e infortuni
         
         Args:
             team_name: Nome della squadra
             
         Returns:
-            Dict con 'news', 'injuries', 'lineup', 'source'
+            Dict con 'news', 'injuries', 'lineup', 'formations', 'players_mentioned', 'source'
         """
         # Controlla cache
         cached = self.cache.get_cached_news(team_name)
@@ -122,27 +127,117 @@ class NewsAggregatorFree:
             'news': [],
             'injuries': [],
             'lineup': [],
-            'source': 'cache'
+            'formations': [],
+            'players_mentioned': [],
+            'source': 'multiple'
         }
         
-        # Prova NewsAPI prima
-        if self.news_api_available:
-            newsapi_results = self._get_news_from_newsapi(team_name)
-            if newsapi_results:
-                result['news'] = newsapi_results
-                result['source'] = 'newsapi'
-            else:
-                # Fallback a DuckDuckGo
-                result['news'] = self.web_search.search_news(team_name, max_results=5)
-                result['source'] = 'duckduckgo'
-        else:
-            # Usa solo DuckDuckGo
-            result['news'] = self.web_search.search_news(team_name, max_results=5)
-            result['source'] = 'duckduckgo'
+        all_news = []
+        all_injuries = []
+        all_formations = []
+        all_players = []
         
-        # Cerca infortuni e formazioni
-        result['injuries'] = self.web_search.search_injuries(team_name)
-        result['lineup'] = self.web_search.search_lineup(team_name)
+        # 1. Prova RSS Feeds (priorità alta, aggiornamenti frequenti)
+        try:
+            rss_info = self.rss_aggregator.get_team_structured_info(team_name)
+            if rss_info.get('news'):
+                all_news.extend(rss_info['news'])
+                result['source'] = 'rss_feeds'
+            
+            if rss_info.get('injuries'):
+                all_injuries.extend(rss_info['injuries'])
+            
+            if rss_info.get('formations'):
+                all_formations.extend(rss_info['formations'])
+            
+            if rss_info.get('players_mentioned'):
+                all_players.extend(rss_info['players_mentioned'])
+        except Exception as e:
+            print(f"Errore RSS aggregator: {e}")
+        
+        # 2. Prova NewsAPI (se disponibile)
+        if self.news_api_available and len(all_news) < 10:
+            try:
+                newsapi_results = self._get_news_from_newsapi(team_name)
+                if newsapi_results:
+                    # Arricchisci con parsing
+                    newsapi_results = self.text_parser.enhance_search_results(newsapi_results)
+                    all_news.extend(newsapi_results)
+                    if result['source'] == 'multiple':
+                        result['source'] = 'newsapi+rss'
+            except Exception as e:
+                print(f"Errore NewsAPI: {e}")
+        
+        # 3. Fallback a DuckDuckGo (se ancora pochi risultati)
+        if len(all_news) < 5:
+            try:
+                duckduckgo_results = self.web_search.search_news(team_name, max_results=5)
+                all_news.extend(duckduckgo_results)
+                if result['source'] == 'multiple':
+                    result['source'] = 'duckduckgo+rss'
+            except Exception as e:
+                print(f"Errore DuckDuckGo: {e}")
+        
+        # 4. Cerca infortuni e formazioni con DuckDuckGo (se non trovati)
+        if not all_injuries:
+            try:
+                injuries_results = self.web_search.search_injuries(team_name)
+                # Estrai infortuni dai risultati
+                for injury_result in injuries_results:
+                    parsed = self.text_parser.parse_news_article(
+                        injury_result.get('title', ''),
+                        injury_result.get('snippet', '')
+                    )
+                    if parsed.get('injuries'):
+                        all_injuries.extend(parsed['injuries'])
+            except Exception as e:
+                print(f"Errore ricerca infortuni: {e}")
+        
+        if not all_formations:
+            try:
+                lineup_results = self.web_search.search_lineup(team_name)
+                # Estrai formazioni dai risultati
+                for lineup_result in lineup_results:
+                    parsed = self.text_parser.parse_news_article(
+                        lineup_result.get('title', ''),
+                        lineup_result.get('snippet', '')
+                    )
+                    if parsed.get('formations'):
+                        all_formations.extend(parsed['formations'])
+            except Exception as e:
+                print(f"Errore ricerca formazioni: {e}")
+        
+        # Rimuovi duplicati e aggrega
+        # News: rimuovi duplicati per URL
+        seen_urls = set()
+        unique_news = []
+        for news in all_news:
+            url = news.get('url', '')
+            if url and url not in seen_urls:
+                seen_urls.add(url)
+                unique_news.append(news)
+        
+        # Infortuni: rimuovi duplicati per giocatore
+        seen_players = set()
+        unique_injuries = []
+        for injury in all_injuries:
+            player = injury.get('player', '') if isinstance(injury, dict) else ''
+            if player and player not in seen_players:
+                seen_players.add(player)
+                unique_injuries.append(injury)
+        
+        # Formazioni: rimuovi duplicati
+        unique_formations = list(set(all_formations))
+        
+        # Giocatori: rimuovi duplicati
+        unique_players = list(set(all_players))
+        
+        # Aggiorna risultato
+        result['news'] = unique_news[:15]  # Max 15 news
+        result['injuries'] = unique_injuries[:10]  # Max 10 infortuni
+        result['formations'] = unique_formations[:5]  # Max 5 formazioni
+        result['players_mentioned'] = unique_players[:20]  # Max 20 giocatori
+        result['lineup'] = []  # Mantenuto per compatibilità
         
         # Salva in cache
         self.cache.save_news(team_name, result)

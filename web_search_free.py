@@ -9,6 +9,7 @@ from duckduckgo_search import DDGS
 import config
 from cache_manager import CacheManager
 from team_search_intelligent import TeamSearchIntelligent
+from text_parser_advanced import TextParserAdvanced
 
 class WebSearchFree:
     """Gestisce ricerche web gratuite tramite DuckDuckGo"""
@@ -16,6 +17,7 @@ class WebSearchFree:
     def __init__(self):
         self.cache = CacheManager()
         self.team_search = TeamSearchIntelligent()
+        self.text_parser = TextParserAdvanced()
         self.last_request_time = 0
         self.min_request_interval = 60 / config.DUCKDUCKGO_RATE_LIMIT_PER_MINUTE  # Secondi tra richieste
     
