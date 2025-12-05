@@ -161,6 +161,17 @@ class AIAgentGroq:
                     "title": lineup.get("title", "")[:100] if isinstance(lineup, dict) else str(lineup)[:100]
                 })
             
+            # Prepara messaggio esplicito per AI
+            summary = []
+            if news_truncated:
+                summary.append(f"Trovate {len(news_truncated)} news")
+            if injuries_truncated:
+                summary.append(f"Trovati {len(injuries_truncated)} infortuni")
+            if formations:
+                summary.append(f"Trovate {len(formations)} formazioni")
+            if players_mentioned:
+                summary.append(f"Trovati {len(players_mentioned)} giocatori menzionati")
+            
             return {
                 "success": True,
                 "team": team_name,
@@ -169,7 +180,9 @@ class AIAgentGroq:
                 "formations": formations,  # Nuovo campo
                 "players_mentioned": players_mentioned,  # Nuovo campo
                 "lineup": lineup_truncated,
-                "source": news_data.get("source", "unknown")
+                "source": news_data.get("source", "unknown"),
+                "summary": " | ".join(summary) if summary else "Nessun dato trovato",
+                "instruction": "MOSTRA SEMPRE i titoli delle news, i nomi dei giocatori infortunati e le formazioni se presenti!"
             }
         
         elif tool_name == "calculate_probabilities":

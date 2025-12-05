@@ -179,22 +179,25 @@ class NewsAggregatorFree:
             except Exception as e:
                 print(f"Errore DuckDuckGo: {e}")
         
-        # 5. Estrai informazioni da tutte le news (aggregazione parsing)
+        # 4. Estrai informazioni da tutte le news (aggregazione parsing)
         for news_item in all_news:
             # Se ha parsed_info, estrai informazioni
             parsed_info = news_item.get('parsed_info', {})
             if parsed_info:
                 # Aggrega giocatori
                 players = parsed_info.get('players_mentioned', [])
-                all_players.extend(players)
+                if players:
+                    all_players.extend(players)
                 
                 # Aggrega formazioni
                 formations = parsed_info.get('formations', [])
-                all_formations.extend(formations)
+                if formations:
+                    all_formations.extend(formations)
                 
                 # Aggrega infortuni
                 injuries = parsed_info.get('injuries', [])
-                all_injuries.extend(injuries)
+                if injuries:
+                    all_injuries.extend(injuries)
         
         # 4. Cerca infortuni e formazioni con DuckDuckGo (se non trovati)
         if not all_injuries:
