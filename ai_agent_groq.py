@@ -233,17 +233,17 @@ Quando l'utente chiede analisi, usa gli strumenti disponibili per ottenere dati 
             "content": user_message
         })
         
-        # Mantieni solo ultimi 10 messaggi per performance
-        if len(self.conversation_history) > 20:
-            self.conversation_history = self.conversation_history[-20:]
+        # Mantieni solo ultimi 5 messaggi per evitare superamento limite token
+        if len(self.conversation_history) > 10:
+            self.conversation_history = self.conversation_history[-10:]
         
-        # Prepara messaggi per Groq
+        # Prepara messaggi per Groq (solo ultimi 3 messaggi per ridurre token)
         messages = [
             {
                 "role": "system",
                 "content": self._build_system_prompt(context)
             }
-        ] + self.conversation_history[-10:]  # Ultimi 10 messaggi
+        ] + self.conversation_history[-3:]  # Solo ultimi 3 messaggi per evitare limite token
         
         tools = self._get_tools_schema()
         tools_used = []
@@ -293,10 +293,21 @@ Quando l'utente chiede analisi, usa gli strumenti disponibili per ottenere dati 
                         }]
                     })
                     
+                    # Tronca risultato tool se troppo grande (max 500 caratteri JSON)
+                    tool_result_str = json.dumps(tool_result)
+                    if len(tool_result_str) > 500:
+                        # Se troppo grande, mantieni solo info essenziali
+                        if isinstance(tool_result, dict):
+                            simplified = {
+                                "success": tool_result.get("success", False),
+                                "summary": f"Tool {tool_name} completato. Dati disponibili ma troncati per limiti token."
+                            }
+                            tool_result_str = json.dumps(simplified)
+                    
                     messages.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "content": json.dumps(tool_result)
+                        "content": tool_result_str
                     })
                 
                 # Chiama di nuovo Groq con i risultati
