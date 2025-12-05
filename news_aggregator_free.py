@@ -158,6 +158,7 @@ class NewsAggregatorFree:
         all_injuries = []
         all_formations = []
         all_unavailable = []
+        all_articles = []  # Conserva titoli articoli per l'utente
 
         # PRIORITÀ 1: Google News RSS (GRATUITO, affidabile, nessuna API key)
         try:
@@ -170,11 +171,20 @@ class NewsAggregatorFree:
             for article in injuries_articles:
                 title = article.get('title', '')
                 description = article.get('description', '')
-                parsed = self.text_parser.parse_news_article(title, description)
 
-                if parsed.get('injuries'):
-                    all_injuries.extend(parsed['injuries'])
-                    print(f"DEBUG: Google News - Estratti {len(parsed['injuries'])} infortuni")
+                # Salva articolo con titolo leggibile
+                if title:
+                    all_articles.append({
+                        'title': title,
+                        'type': 'injury',
+                        'link': article.get('link', '')
+                    })
+
+                # Estrai formazioni se presenti nel titolo
+                full_text = f"{title} {description}"
+                formations_found = self.text_parser.extract_formations(full_text)
+                if formations_found:
+                    all_formations.extend(formations_found)
 
             # Cerca formazioni
             lineup_articles = self.google_news.search_lineup(team_name)
@@ -183,13 +193,16 @@ class NewsAggregatorFree:
             for article in lineup_articles:
                 title = article.get('title', '')
                 description = article.get('description', '')
-                parsed = self.text_parser.parse_news_article(title, description)
 
-                if parsed.get('formations'):
-                    all_formations.extend(parsed['formations'])
-                    print(f"DEBUG: Google News - Estratte {len(parsed['formations'])} formazioni")
+                # Salva articolo
+                if title:
+                    all_articles.append({
+                        'title': title,
+                        'type': 'lineup',
+                        'link': article.get('link', '')
+                    })
 
-                # Estrai formazioni anche dal testo
+                # Estrai formazioni dal testo
                 full_text = f"{title} {description}"
                 formations_found = self.text_parser.extract_formations(full_text)
                 if formations_found:
@@ -201,16 +214,14 @@ class NewsAggregatorFree:
 
             for article in unavailable_articles:
                 title = article.get('title', '')
-                description = article.get('description', '')
-                parsed = self.text_parser.parse_news_article(title, description)
 
-                if parsed.get('injuries'):
-                    for injury in parsed['injuries']:
-                        if isinstance(injury, dict):
-                            status = injury.get('status', '').lower()
-                            full_text = f"{title} {description}".lower()
-                            if any(kw in status or kw in full_text for kw in ['suspended', 'squalificato', 'sospeso', 'banned']):
-                                all_unavailable.append(injury)
+                # Salva articolo
+                if title:
+                    all_articles.append({
+                        'title': title,
+                        'type': 'unavailable',
+                        'link': article.get('link', '')
+                    })
 
         except Exception as e:
             print(f"DEBUG: Errore Google News RSS: {e}")
@@ -366,18 +377,20 @@ class NewsAggregatorFree:
         # Formazioni: rimuovi duplicati
         unique_formations = list(set(all_formations))
         
-        # Aggiorna risultato (SOLO info essenziali, NO news generiche)
-        result['injuries'] = unique_injuries[:10]  # Max 10 infortuni
-        result['formations'] = unique_formations[:5]  # Max 5 formazioni
-        result['unavailable'] = unique_unavailable[:10]  # Max 10 indisponibili
+        # Aggiorna risultato con ARTICOLI invece di nomi estratti male
+        result['injuries'] = [{'title': a['title'], 'link': a['link']} for a in all_articles if a['type'] == 'injury'][:10]
+        result['formations'] = unique_formations[:5]  # Formazioni estratte (4-3-3, etc.)
+        result['unavailable'] = [{'title': a['title'], 'link': a['link']} for a in all_articles if a['type'] == 'unavailable'][:10]
+        result['lineup_news'] = [{'title': a['title'], 'link': a['link']} for a in all_articles if a['type'] == 'lineup'][:10]
         
         # DEBUG: Stampa riepilogo finale
         print(f"DEBUG FINALE per {team_name}:")
-        print(f"  - Infortuni trovati: {len(unique_injuries)}")
+        print(f"  - Articoli infortuni: {len(result['injuries'])}")
         print(f"  - Formazioni trovate: {len(unique_formations)}")
-        print(f"  - Indisponibili trovati: {len(unique_unavailable)}")
-        if unique_injuries:
-            print(f"  - Esempio infortuni: {[i.get('player', 'N/A') if isinstance(i, dict) else str(i)[:30] for i in unique_injuries[:3]]}")
+        print(f"  - Articoli indisponibili: {len(result['unavailable'])}")
+        print(f"  - Articoli formazioni: {len(result['lineup_news'])}")
+        if result['injuries']:
+            print(f"  - Esempio: {result['injuries'][0]['title'][:80]}...")
         if unique_formations:
             print(f"  - Formazioni: {unique_formations}")
         
