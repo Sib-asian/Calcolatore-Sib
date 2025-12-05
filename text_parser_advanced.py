@@ -171,7 +171,7 @@ class TextParserAdvanced:
     
     def extract_formations(self, text: str) -> List[str]:
         """
-        Estrae formazioni tattiche da un testo
+        Estrae formazioni tattiche da un testo - MIGLIORATO per multilingua
         
         Args:
             text: Testo da analizzare
@@ -181,7 +181,14 @@ class TextParserAdvanced:
         """
         formations = set()
         
-        # Cerca pattern formazioni
+        # Pattern multilingua per formazioni
+        formation_keywords = [
+            'formazione', 'lineup', 'formation', 'formação', 'alineación',
+            'composition', 'aufstellung', 'probable', 'probable', 'ufficiale',
+            'official', 'starting', 'xi', '11'
+        ]
+        
+        # Cerca pattern formazioni (pattern originali)
         for pattern in self.formation_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
@@ -189,18 +196,39 @@ class TextParserAdvanced:
                 if re.match(r'^[0-9]-[0-9]-[0-9]$', match):
                     formations.add(match)
         
-        # Cerca anche formazioni scritte in modo diverso
-        alt_pattern = r'\b([0-9])\s*-\s*([0-9])\s*-\s*([0-9])\b'
-        alt_matches = re.findall(alt_pattern, text)
-        for match in alt_matches:
-            formation = f"{match[0]}-{match[1]}-{match[2]}"
-            formations.add(formation)
+        # Cerca anche formazioni scritte in modo diverso (con/senza spazi)
+        alt_patterns = [
+            r'\b([0-9])\s*-\s*([0-9])\s*-\s*([0-9])\b',  # 4 - 3 - 3
+            r'\b([0-9])-([0-9])-([0-9])\b',  # 4-3-3
+            r'\b([0-9])\s+([0-9])\s+([0-9])\b',  # 4 3 3 (senza trattini)
+        ]
+        
+        for alt_pattern in alt_patterns:
+            alt_matches = re.findall(alt_pattern, text)
+            for match in alt_matches:
+                if len(match) == 3:
+                    formation = f"{match[0]}-{match[1]}-{match[2]}"
+                    # Valida che sia una formazione valida (somma = 10 o 11)
+                    try:
+                        total = int(match[0]) + int(match[1]) + int(match[2])
+                        if 8 <= total <= 11:  # Formazioni valide
+                            formations.add(formation)
+                    except:
+                        pass
+        
+        # Cerca formazioni vicine a keywords (es: "formazione 4-3-3")
+        for keyword in formation_keywords:
+            pattern = rf'{keyword}[\s:]+([0-9]-[0-9]-[0-9])'
+            matches = re.findall(pattern, text, re.IGNORECASE)
+            for match in matches:
+                if re.match(r'^[0-9]-[0-9]-[0-9]$', match):
+                    formations.add(match)
         
         return list(formations)
     
     def extract_injuries(self, text: str) -> List[Dict[str, Any]]:
         """
-        Estrae informazioni su infortuni da un testo
+        Estrae informazioni su infortuni da un testo - MIGLIORATO per multilingua
         
         Args:
             text: Testo da analizzare
@@ -210,28 +238,56 @@ class TextParserAdvanced:
         """
         injuries = []
         
-        # Cerca pattern infortuni con nomi
-        for pattern in self.injury_patterns:
+        # Keywords multilingua per infortuni
+        injury_keywords_multilang = [
+            'infortunato', 'infortunio', 'stop', 'indisponibile', 'assente',
+            'squalificato', 'sospeso', 'problema', 'lesione', 'trauma',
+            'injury', 'injured', 'out', 'doubt', 'doubtful', 'hurt',
+            'lesão', 'lesionado', 'lesión', 'blessé', 'verletzt',
+            'suspended', 'banned', 'suspenso', 'suspendido', 'suspendu', 'gesperrt'
+        ]
+        
+        # Pattern multilingua migliorati
+        injury_patterns_enhanced = [
+            # Italiano
+            r'(?:infortunato|stop|indisponibile|assente|squalificato)[\s:]+([A-Z][a-z]+ [A-Z][a-z]+)',
+            r'([A-Z][a-z]+ [A-Z][a-z]+)[\s]+(?:infortunato|stop|indisponibile|assente)',
+            r'([A-Z][a-z]+ [A-Z][a-z]+)[\s]+(?:subisce|ha subito|ha riportato)[\s]+(?:un\s+)?infortunio',
+            # Inglese
+            r'(?:injured|out|hurt|suspended|banned)[\s:]+([A-Z][a-z]+ [A-Z][a-z]+)',
+            r'([A-Z][a-z]+ [A-Z][a-z]+)[\s]+(?:injured|out|hurt|suspended|banned)',
+            r'([A-Z][a-z]+ [A-Z][a-z]+)[\s]+(?:suffered|sustained)[\s]+(?:an?\s+)?injury',
+            # Portoghese/Spagnolo
+            r'(?:lesionado|lesionado|suspenso|suspendido)[\s:]+([A-Z][a-z]+ [A-Z][a-z]+)',
+            r'([A-Z][a-z]+ [A-Z][a-z]+)[\s]+(?:lesionado|suspenso)',
+        ]
+        
+        # Cerca pattern infortuni con nomi (pattern originali + enhanced)
+        all_patterns = self.injury_patterns + injury_patterns_enhanced
+        for pattern in all_patterns:
             matches = re.finditer(pattern, text, re.IGNORECASE)
             for match in matches:
                 player_name = match.group(1) if match.groups() else None
-                if player_name:
+                if player_name and len(player_name.split()) >= 2:  # Almeno 2 parole
                     # Estrai contesto (frase completa)
-                    start = max(0, match.start() - 50)
-                    end = min(len(text), match.end() + 50)
+                    start = max(0, match.start() - 100)
+                    end = min(len(text), match.end() + 100)
                     context = text[start:end].strip()
                     
-                    # Determina status
+                    # Determina status (multilingua)
                     status = 'unknown'
-                    if any(kw in context.lower() for kw in ['stop', 'fuori', 'out']):
+                    context_lower = context.lower()
+                    if any(kw in context_lower for kw in ['stop', 'fuori', 'out', 'ausente', 'ausente']):
                         status = 'out'
-                    elif any(kw in context.lower() for kw in ['dubbio', 'doubt', 'doubtful']):
+                    elif any(kw in context_lower for kw in ['dubbio', 'doubt', 'doubtful', 'dúvida']):
                         status = 'doubtful'
-                    elif any(kw in context.lower() for kw in ['squalificato', 'sospeso']):
+                    elif any(kw in context_lower for kw in ['squalificato', 'sospeso', 'suspended', 'banned', 'suspenso', 'suspendido', 'gesperrt']):
                         status = 'suspended'
+                    elif any(kw in context_lower for kw in ['infortunato', 'injured', 'hurt', 'lesionado', 'blessé', 'verletzt']):
+                        status = 'injured'
                     
                     injuries.append({
-                        'player': player_name,
+                        'player': player_name.strip(),
                         'status': status,
                         'context': context
                     })
@@ -240,8 +296,9 @@ class TextParserAdvanced:
         seen_players = set()
         unique_injuries = []
         for injury in injuries:
-            if injury['player'] not in seen_players:
-                seen_players.add(injury['player'])
+            player = injury['player'].lower()
+            if player not in seen_players:
+                seen_players.add(player)
                 unique_injuries.append(injury)
         
         return unique_injuries

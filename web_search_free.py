@@ -153,7 +153,7 @@ class WebSearchFree:
     
     def search_injuries(self, team_name: str) -> List[Dict[str, Any]]:
         """
-        Cerca informazioni su infortuni squadra usando nome completo
+        Cerca informazioni su infortuni squadra usando nome completo - RICERCA MULTILINGUA APPROFONDITA
         
         Args:
             team_name: Nome della squadra
@@ -164,35 +164,59 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query varianti per infortuni
+        # Query multilingua per infortuni (IT, EN, PT, ES, FR, DE)
         queries = [
-            f"{full_name} infortuni",
+            # Italiano
+            f"{full_name} infortuni oggi",
+            f"{full_name} calciatori infortunati partita",
             f"{full_name} infortuni calciatori",
-            f"{full_name} injuries",
-            f"{full_name} calciatori infortunati",
-            f"{team_name} infortuni"
+            f"{full_name} squadra infortuni",
+            f"{team_name} infortuni oggi",
+            # Inglese
+            f"{full_name} injured players today",
+            f"{full_name} injury list match",
+            f"{full_name} players out injured",
+            f"{full_name} injury news",
+            f"{team_name} injuries today",
+            # Portoghese
+            f"{full_name} lesões hoje",
+            f"{full_name} jogadores lesionados",
+            f"{full_name} lesões jogadores",
+            # Spagnolo
+            f"{full_name} lesiones hoy",
+            f"{full_name} jugadores lesionados",
+            # Francese
+            f"{full_name} blessures aujourd'hui",
+            f"{full_name} joueurs blessés",
+            # Tedesco
+            f"{full_name} verletzungen heute",
+            f"{full_name} verletzte spieler"
         ]
         
         all_results = []
         seen_urls = set()
         
-        for query in queries[:3]:  # Prova max 3 query
-            results = self.search_web(query, max_results=2)
-            for r in results:
-                url = r.get('url', '')
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_results.append(r)
-                    if len(all_results) >= 3:
-                        break
-            if len(all_results) >= 3:
-                break
+        # Prova tutte le query (max 20 risultati totali)
+        for query in queries:
+            try:
+                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
+                for r in results:
+                    url = r.get('url', '')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results.append(r)
+                        if len(all_results) >= 20:  # Max 20 risultati totali
+                            break
+                if len(all_results) >= 20:
+                    break
+            except Exception:
+                continue
         
-        return all_results[:3]
+        return all_results[:20]  # Restituisci fino a 20 risultati
     
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
         """
-        Cerca giocatori indisponibili (squalificati, sospesi) per una squadra
+        Cerca giocatori indisponibili (squalificati, sospesi) - RICERCA MULTILINGUA APPROFONDITA
         
         Args:
             team_name: Nome della squadra
@@ -203,39 +227,60 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query specifiche per indisponibili
+        # Query multilingua per indisponibili (IT, EN, PT, ES, FR, DE)
         queries = [
-            f"{full_name} squalificati",
-            f"{full_name} sospesi",
+            # Italiano
+            f"{full_name} squalificati oggi",
+            f"{full_name} sospesi partita",
             f"{full_name} indisponibili",
-            f"{full_name} assenti",
-            f"{team_name} squalificati oggi",
-            f"{team_name} indisponibili partita"
+            f"{full_name} assenti partita",
+            f"{full_name} calciatori squalificati",
+            f"{team_name} squalificati",
+            # Inglese
+            f"{full_name} suspended players",
+            f"{full_name} banned players",
+            f"{full_name} unavailable players",
+            f"{full_name} players out",
+            f"{full_name} suspension list",
+            f"{team_name} suspended",
+            # Portoghese
+            f"{full_name} suspensos",
+            f"{full_name} jogadores suspensos",
+            # Spagnolo
+            f"{full_name} suspendidos",
+            f"{full_name} jugadores suspendidos",
+            # Francese
+            f"{full_name} suspendus",
+            f"{full_name} joueurs suspendus",
+            # Tedesco
+            f"{full_name} gesperrt",
+            f"{full_name} gesperrte spieler"
         ]
         
         all_results = []
         seen_urls = set()
         
-        for query in queries[:3]:  # Max 3 query
+        # Prova tutte le query (max 20 risultati totali)
+        for query in queries:
             try:
-                results = self.search_web(query, max_results=2)
+                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
                 for r in results:
                     url = r.get('url', '')
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         all_results.append(r)
-                        if len(all_results) >= 5:
+                        if len(all_results) >= 20:  # Max 20 risultati totali
                             break
-                if len(all_results) >= 5:
+                if len(all_results) >= 20:
                     break
             except Exception:
                 continue
         
-        return all_results[:5]
+        return all_results[:20]  # Restituisci fino a 20 risultati
     
     def search_lineup(self, team_name: str) -> List[Dict[str, Any]]:
         """
-        Cerca informazioni su formazioni usando nome completo
+        Cerca informazioni su formazioni usando nome completo - RICERCA MULTILINGUA APPROFONDITA
         
         Args:
             team_name: Nome della squadra
@@ -246,35 +291,58 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query varianti per formazioni
+        # Query multilingua per formazioni (IT, EN, PT, ES, FR, DE)
         queries = [
-            f"{full_name} formazione",
+            # Italiano
             f"{full_name} formazione probabile",
-            f"{full_name} lineup",
+            f"{full_name} formazione ufficiale",
             f"{full_name} probabile formazione",
-            f"{team_name} formazione"
+            f"{full_name} formazione partita",
+            f"{team_name} formazione",
+            # Inglese
+            f"{full_name} probable lineup",
+            f"{full_name} starting XI",
+            f"{full_name} expected lineup",
+            f"{full_name} team lineup",
+            f"{team_name} lineup",
+            # Portoghese
+            f"{full_name} formação provável",
+            f"{full_name} escalação",
+            # Spagnolo
+            f"{full_name} alineación probable",
+            f"{full_name} formación",
+            # Francese
+            f"{full_name} composition probable",
+            f"{full_name} équipe type",
+            # Tedesco
+            f"{full_name} aufstellung",
+            f"{full_name} wahrscheinliche aufstellung"
         ]
         
         all_results = []
         seen_urls = set()
         
-        for query in queries[:3]:  # Prova max 3 query
-            results = self.search_web(query, max_results=2)
-            for r in results:
-                url = r.get('url', '')
-                if url and url not in seen_urls:
-                    seen_urls.add(url)
-                    all_results.append(r)
-                    if len(all_results) >= 3:
-                        break
-            if len(all_results) >= 3:
-                break
+        # Prova tutte le query (max 20 risultati totali)
+        for query in queries:
+            try:
+                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
+                for r in results:
+                    url = r.get('url', '')
+                    if url and url not in seen_urls:
+                        seen_urls.add(url)
+                        all_results.append(r)
+                        if len(all_results) >= 20:  # Max 20 risultati totali
+                            break
+                if len(all_results) >= 20:
+                    break
+            except Exception:
+                continue
         
-        return all_results[:3]
+        return all_results[:20]  # Restituisci fino a 20 risultati
     
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
         """
-        Cerca giocatori indisponibili (squalificati, sospesi) per una squadra
+        Cerca giocatori indisponibili (squalificati, sospesi) - RICERCA MULTILINGUA APPROFONDITA
         
         Args:
             team_name: Nome della squadra
@@ -285,33 +353,54 @@ class WebSearchFree:
         # Ottieni nome completo
         full_name, _ = self.team_search.get_team_search_queries(team_name)
         
-        # Query specifiche per indisponibili
+        # Query multilingua per indisponibili (IT, EN, PT, ES, FR, DE)
         queries = [
-            f"{full_name} squalificati",
-            f"{full_name} sospesi",
+            # Italiano
+            f"{full_name} squalificati oggi",
+            f"{full_name} sospesi partita",
             f"{full_name} indisponibili",
-            f"{full_name} assenti",
-            f"{team_name} squalificati oggi",
-            f"{team_name} indisponibili partita"
+            f"{full_name} assenti partita",
+            f"{full_name} calciatori squalificati",
+            f"{team_name} squalificati",
+            # Inglese
+            f"{full_name} suspended players",
+            f"{full_name} banned players",
+            f"{full_name} unavailable players",
+            f"{full_name} players out",
+            f"{full_name} suspension list",
+            f"{team_name} suspended",
+            # Portoghese
+            f"{full_name} suspensos",
+            f"{full_name} jogadores suspensos",
+            # Spagnolo
+            f"{full_name} suspendidos",
+            f"{full_name} jugadores suspendidos",
+            # Francese
+            f"{full_name} suspendus",
+            f"{full_name} joueurs suspendus",
+            # Tedesco
+            f"{full_name} gesperrt",
+            f"{full_name} gesperrte spieler"
         ]
         
         all_results = []
         seen_urls = set()
         
-        for query in queries[:3]:  # Max 3 query
+        # Prova tutte le query (max 20 risultati totali)
+        for query in queries:
             try:
-                results = self.search_web(query, max_results=2)
+                results = self.search_web(query, max_results=5)  # Aumentato a 5 per query
                 for r in results:
                     url = r.get('url', '')
                     if url and url not in seen_urls:
                         seen_urls.add(url)
                         all_results.append(r)
-                        if len(all_results) >= 5:
+                        if len(all_results) >= 20:  # Max 20 risultati totali
                             break
-                if len(all_results) >= 5:
+                if len(all_results) >= 20:
                     break
             except Exception:
                 continue
         
-        return all_results[:5]
+        return all_results[:20]  # Restituisci fino a 20 risultati
 

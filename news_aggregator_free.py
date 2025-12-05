@@ -134,47 +134,57 @@ class NewsAggregatorFree:
         all_formations = []
         all_unavailable = []
         
-        # 1. Cerca INFORTUNI con query specifiche
+        # 1. Cerca INFORTUNI con query specifiche MULTILINGUA (approfondita)
         try:
             injuries_results = self.web_search.search_injuries(team_name)
+            print(f"DEBUG: Trovati {len(injuries_results)} risultati per infortuni {team_name}")
             for injury_result in injuries_results:
-                parsed = self.text_parser.parse_news_article(
-                    injury_result.get('title', ''),
-                    injury_result.get('snippet', '')
-                )
+                title = injury_result.get('title', '')
+                snippet = injury_result.get('snippet', '')
+                # Combina title e snippet per parsing migliore
+                full_text = f"{title} {snippet}"
+                parsed = self.text_parser.parse_news_article(title, snippet)
                 if parsed.get('injuries'):
                     all_injuries.extend(parsed['injuries'])
+                    print(f"DEBUG: Estratti {len(parsed['injuries'])} infortuni da: {title[:50]}")
         except Exception as e:
             print(f"Errore ricerca infortuni: {e}")
         
-        # 2. Cerca FORMAZIONI con query specifiche
+        # 2. Cerca FORMAZIONI con query specifiche MULTILINGUA (approfondita)
         try:
             lineup_results = self.web_search.search_lineup(team_name)
+            print(f"DEBUG: Trovati {len(lineup_results)} risultati per formazioni {team_name}")
             for lineup_result in lineup_results:
-                parsed = self.text_parser.parse_news_article(
-                    lineup_result.get('title', ''),
-                    lineup_result.get('snippet', '')
-                )
+                title = lineup_result.get('title', '')
+                snippet = lineup_result.get('snippet', '')
+                parsed = self.text_parser.parse_news_article(title, snippet)
                 if parsed.get('formations'):
                     all_formations.extend(parsed['formations'])
+                    print(f"DEBUG: Estratte {len(parsed['formations'])} formazioni da: {title[:50]}")
         except Exception as e:
             print(f"Errore ricerca formazioni: {e}")
         
-        # 3. Cerca INDISPONIBILI (squalificati, sospesi) con query specifiche
+        # 3. Cerca INDISPONIBILI (squalificati, sospesi) con query specifiche MULTILINGUA (approfondita)
         try:
             unavailable_results = self.web_search.search_unavailable(team_name)
+            print(f"DEBUG: Trovati {len(unavailable_results)} risultati per indisponibili {team_name}")
             for unavailable_result in unavailable_results:
-                parsed = self.text_parser.parse_news_article(
-                    unavailable_result.get('title', ''),
-                    unavailable_result.get('snippet', '')
-                )
+                title = unavailable_result.get('title', '')
+                snippet = unavailable_result.get('snippet', '')
+                parsed = self.text_parser.parse_news_article(title, snippet)
                 # Estrai giocatori indisponibili
                 injuries = parsed.get('injuries', [])
                 for injury in injuries:
                     if isinstance(injury, dict):
                         status = injury.get('status', '').lower()
-                        if 'suspended' in status or 'squalificato' in status or 'sospeso' in status:
+                        player = injury.get('player', '')
+                        # Cerca keywords di indisponibilità nel testo
+                        full_text = f"{title} {snippet}".lower()
+                        if ('suspended' in status or 'squalificato' in status or 'sospeso' in status or
+                            'suspended' in full_text or 'squalificato' in full_text or 'sospeso' in full_text or
+                            'banned' in full_text or 'ban' in full_text):
                             all_unavailable.append(injury)
+                            print(f"DEBUG: Trovato indisponibile: {player} ({status})")
         except Exception as e:
             print(f"Errore ricerca indisponibili: {e}")
         
