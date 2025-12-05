@@ -59,10 +59,15 @@ logs/
 .coverage
 htmlcov/
 
+# AI Cache
+ai_cache.db
+*.db
+
 
 
 
 test_market_coherence.py
 test_*.py
 test_results.txt
+
 

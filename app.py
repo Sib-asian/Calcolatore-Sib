@@ -6,17 +6,46 @@ App Streamlit per calcolo avanzato di probabilità basato su spread e total
 import streamlit as st
 import pandas as pd
 from probability_calculator import AdvancedProbabilityCalculator
-from api_football_client import get_api_client
 import plotly.graph_objects as go
 import plotly.express as px
+from ai_agent_groq import AIAgentGroq
 
-# Configurazione pagina
+# Configurazione pagina (mobile-friendly)
 st.set_page_config(
     page_title="Calcolatore SIB",
     page_icon="⚽",
     layout="wide",
     initial_sidebar_state="expanded"
 )
+
+# CSS per mobile-friendly
+st.markdown("""
+<style>
+    /* Mobile-friendly chat */
+    @media (max-width: 768px) {
+        .stTextInput > div > div > input {
+            font-size: 16px !important; /* Previene zoom su iOS */
+        }
+        .chat-message {
+            padding: 10px;
+            margin: 5px 0;
+            border-radius: 10px;
+        }
+    }
+    .chat-user {
+        background-color: #0e1117;
+        color: white;
+        text-align: right;
+        margin-left: 20%;
+    }
+    .chat-assistant {
+        background-color: #262730;
+        color: white;
+        text-align: left;
+        margin-right: 20%;
+    }
+</style>
+""", unsafe_allow_html=True)
 
 # Titolo e descrizione
 st.title("⚽ Calcolatore SIB - Probabilità Scommesse Calcistiche")
@@ -34,6 +63,16 @@ def get_calculator():
     return AdvancedProbabilityCalculator()
 
 calculator = get_calculator()
+
+# Inizializza AI Agent
+@st.cache_resource
+def get_ai_agent():
+    try:
+        return AIAgentGroq()
+    except Exception as e:
+        return None
+
+ai_agent = get_ai_agent()
 
 # Sidebar per input
 st.sidebar.header("📊 Input Dati")
@@ -72,131 +111,41 @@ total_current = st.sidebar.number_input(
     format="%.2f"
 )
 
-# ===== SEZIONE API: Statistiche Squadre =====
-st.sidebar.markdown("---")
-st.sidebar.subheader("📊 Statistiche Squadre (Opzionale)")
-st.sidebar.markdown("*Carica stats recenti per aggiustamenti automatici*")
-
-# Input nomi squadre
-team_home_name = st.sidebar.text_input(
-    "🏠 Squadra Casa",
-    value="",
-    placeholder="Es: Inter, Milan, Juventus",
-    help="Nome squadra che gioca in casa"
-)
-
-team_away_name = st.sidebar.text_input(
-    "✈️ Squadra Trasferta",
-    value="",
-    placeholder="Es: Juventus, Roma, Napoli",
-    help="Nome squadra che gioca in trasferta"
-)
-
-# Bottone carica statistiche
-if st.sidebar.button("🔍 Carica Statistiche", disabled=(not team_home_name or not team_away_name)):
-    with st.spinner("⏳ Caricamento statistiche da API..."):
-        try:
-            api_client = get_api_client()
-            
-            # Carica stats casa (venue='home')
-            stats_home = api_client.get_team_stats(team_home_name, venue='home')
-            
-            # Carica stats trasferta (venue='away')
-            stats_away = api_client.get_team_stats(team_away_name, venue='away')
-            
-            if stats_home and stats_away:
-                # Salva in session state
-                st.session_state['stats_home'] = stats_home
-                st.session_state['stats_away'] = stats_away
-                st.session_state['api_loaded'] = True
-                st.sidebar.success("✅ Statistiche caricate con successo!")
-            else:
-                error_msg = []
-                if not stats_home:
-                    error_msg.append(f"'{team_home_name}'")
-                if not stats_away:
-                    error_msg.append(f"'{team_away_name}'")
-                st.sidebar.error(f"❌ Squadra non trovata: {', '.join(error_msg)}")
-                st.session_state['api_loaded'] = False
-        except Exception as e:
-            st.sidebar.error(f"❌ Errore API: {str(e)}")
-            st.session_state['api_loaded'] = False
-
-# Mostra stats se caricate
-if st.session_state.get('api_loaded', False):
-    stats_home = st.session_state.get('stats_home')
-    stats_away = st.session_state.get('stats_away')
-    
-    if stats_home and stats_away:
-        st.sidebar.markdown("---")
-        st.sidebar.markdown("**📈 Dati Caricati**")
-        
-        # Stats Casa
-        st.sidebar.markdown(f"**🏠 {stats_home['team_name']}** (in casa)")
-        results_home = ''.join(stats_home['results'])
-        st.sidebar.markdown(f"└ Ultimi 5: `{results_home}`")
-        st.sidebar.markdown(f"└ Media gol: `{stats_home['goals_scored_avg']:.1f}` fatti / `{stats_home['goals_conceded_avg']:.1f}` subiti")
-        st.sidebar.markdown(f"└ Forma: `{stats_home['form_factor']*100:.0f}%`")
-        
-        # Stats Trasferta
-        st.sidebar.markdown(f"**✈️ {stats_away['team_name']}** (in trasferta)")
-        results_away = ''.join(stats_away['results'])
-        st.sidebar.markdown(f"└ Ultimi 5: `{results_away}`")
-        st.sidebar.markdown(f"└ Media gol: `{stats_away['goals_scored_avg']:.1f}` fatti / `{stats_away['goals_conceded_avg']:.1f}` subiti")
-        st.sidebar.markdown(f"└ Forma: `{stats_away['form_factor']*100:.0f}%`")
-        
-        # Alert coerenza
-        lambda_home_input = (total_current - spread_current) * 0.5
-        lambda_away_input = (total_current + spread_current) * 0.5
-        
-        lambda_home_api = stats_home['goals_scored_avg']
-        lambda_away_api = stats_away['goals_scored_avg']
-        
-        diff_home = abs(lambda_home_input - lambda_home_api)
-        diff_away = abs(lambda_away_input - lambda_away_api)
-        
-        st.sidebar.markdown("---")
-        if diff_home > 0.5 or diff_away > 0.5:
-            st.sidebar.warning("⚠️ **Discrepanza rilevata**")
-            st.sidebar.markdown(f"Casa: Input `{lambda_home_input:.2f}` vs API `{lambda_home_api:.1f}` ({'±' if diff_home < 0.1 else '⚠️'}{diff_home:.2f})")
-            st.sidebar.markdown(f"Trasf: Input `{lambda_away_input:.2f}` vs API `{lambda_away_api:.1f}` ({'±' if diff_away < 0.1 else '⚠️'}{diff_away:.2f})")
-        else:
-            st.sidebar.success("✅ Input coerente con forma recente")
-        
-        st.sidebar.info("ℹ️ Gli aggiustamenti API (max ±3%) verranno applicati automaticamente al calcolo")
-
-st.sidebar.markdown("---")
-
 # Calcolo probabilità
 if st.sidebar.button("🔄 Calcola Probabilità", type="primary"):
     with st.spinner("Calcolo in corso..."):
-        # Recupera stats API se disponibili
-        api_stats_home = st.session_state.get('stats_home', None) if st.session_state.get('api_loaded', False) else None
-        api_stats_away = st.session_state.get('stats_away', None) if st.session_state.get('api_loaded', False) else None
-        
-        # Calcolo con stats opzionali
         results = calculator.calculate_all_probabilities(
             spread_opening, total_opening,
-            spread_current, total_current,
-            api_stats_home=api_stats_home,
-            api_stats_away=api_stats_away
+            spread_current, total_current
         )
         st.session_state['results'] = results
         st.session_state['calculated'] = True
+        # Salva context per AI
+        st.session_state['ai_context'] = {
+            'spread_opening': spread_opening,
+            'total_opening': total_opening,
+            'spread_current': spread_current,
+            'total_current': total_current
+        }
 
-# Mostra risultati se calcolati
-if st.session_state.get('calculated', False):
-    results = st.session_state['results']
-    
-    # Tabs per organizzare i risultati
-    tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
-        "📈 Riepilogo", "1️⃣ 1X2", "⚽ GG/NG & Over/Under", 
-        "⏱️ Primo Tempo", "🎯 Risultati Esatti", "🔄 Doppia Chance & Handicap",
-        "🎲 Total Esatto & Win to Nil", "📊 Movimento Mercato"
-    ])
-    
-    with tab1:
-        st.header("📊 Riepilogo Generale")
+# Tabs principali
+main_tab1, main_tab2 = st.tabs(["📊 Calcolatore", "🤖 AI Assistant"])
+
+# Tab Calcolatore
+with main_tab1:
+    # Mostra risultati se calcolati
+    if st.session_state.get('calculated', False):
+        results = st.session_state['results']
+        
+        # Tabs per organizzare i risultati
+        tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
+            "📈 Riepilogo", "1️⃣ 1X2", "⚽ GG/NG & Over/Under", 
+            "⏱️ Primo Tempo", "🎯 Risultati Esatti", "🔄 Doppia Chance & Handicap",
+            "🎲 Total Esatto & Win to Nil", "📊 Movimento Mercato"
+        ])
+        
+        with tab1:
+            st.header("📊 Riepilogo Generale")
         
         col1, col2, col3, col4 = st.columns(4)
         
@@ -255,9 +204,9 @@ if st.session_state.get('calculated', False):
             barmode='group'
         )
         st.plotly_chart(fig_eg, use_container_width=True)
-    
-    with tab2:
-        st.header("1️⃣ Probabilità 1X2")
+        
+        with tab2:
+            st.header("1️⃣ Probabilità 1X2")
         
         col1, col2 = st.columns(2)
         
@@ -348,9 +297,9 @@ if st.session_state.get('calculated', False):
             lambda x: f"{x*100:+.2f}%"
         )
         st.dataframe(df_comparison, use_container_width=True, hide_index=True)
-    
-    with tab3:
-        st.header("⚽ GG/NG & Over/Under")
+        
+        with tab3:
+            st.header("⚽ GG/NG & Over/Under")
         
         # GG/NG
         st.subheader("🎯 Goal-Goal / No Goal")
@@ -405,9 +354,9 @@ if st.session_state.get('calculated', False):
         df_ou['Var. Assoluta'] = df_ou['Var. Assoluta'].apply(lambda x: f"{x*100:+.2f}%")
         
         st.dataframe(df_ou, use_container_width=True, hide_index=True)
-    
-    with tab4:
-        st.header("⏱️ Mercati Primo Tempo (HT)")
+        
+        with tab4:
+            st.header("⏱️ Mercati Primo Tempo (HT)")
         
         opening_ht = results['Opening']['HT']
         current_ht = results['Current']['HT']
@@ -453,9 +402,9 @@ if st.session_state.get('calculated', False):
         
         df_ht_ou = pd.DataFrame(ht_ou_data)
         st.dataframe(df_ht_ou, use_container_width=True, hide_index=True)
-    
-    with tab5:
-        st.header("🎯 Risultati Esatti")
+        
+        with tab5:
+            st.header("🎯 Risultati Esatti")
         
         opening_scores = results['Opening']['Exact_Scores']
         current_scores = results['Current']['Exact_Scores']
@@ -515,9 +464,9 @@ if st.session_state.get('calculated', False):
             )
             df_matrix_current = df_matrix_current.applymap(lambda x: f"{x*100:.1f}%")
             st.dataframe(df_matrix_current, use_container_width=True)
-    
-    with tab6:
-        st.header("🔄 Doppia Chance & Handicap Asiatico")
+        
+        with tab6:
+            st.header("🔄 Doppia Chance & Handicap Asiatico")
         
         opening_dc = results['Opening']['Double_Chance']
         current_dc = results['Current']['Double_Chance']
@@ -592,9 +541,9 @@ if st.session_state.get('calculated', False):
         
         df_ah = pd.DataFrame(ah_data)
         st.dataframe(df_ah, use_container_width=True, hide_index=True)
-    
-    with tab7:
-        st.header("🎲 Total Esatto & Win to Nil")
+        
+        with tab7:
+            st.header("🎲 Total Esatto & Win to Nil")
         
         opening_et = results['Opening']['Exact_Total']
         current_et = results['Current']['Exact_Total']
@@ -645,9 +594,9 @@ if st.session_state.get('calculated', False):
         }
         df_wtn = pd.DataFrame(wtn_data)
         st.dataframe(df_wtn, use_container_width=True, hide_index=True)
-    
-    with tab8:
-        st.header("📊 Analisi Movimento Mercato")
+        
+        with tab8:
+            st.header("📊 Analisi Movimento Mercato")
         
         movement = results['Movement']
         
@@ -707,9 +656,114 @@ if st.session_state.get('calculated', False):
             st.info("🔒 Il total atteso è diminuito (meno gol attesi)")
         else:
             st.info("➡️ Nessun movimento significativo nel total")
+    
+    else:
+        st.info("👈 Inserisci i dati nella sidebar e clicca 'Calcola Probabilità' per iniziare")
 
-else:
-    st.info("👈 Inserisci i dati nella sidebar e clicca 'Calcola Probabilità' per iniziare")
+# Tab AI Assistant
+with main_tab2:
+    st.header("🤖 AI Assistant - Analisi Intelligente")
+    st.markdown("""
+    **Chiedi all'AI di analizzare partite, cercare news, spiegare calcoli e molto altro!**
+    
+    Esempi:
+    - "Analizza Inter vs Milan"
+    - "Perché Under 2.5 è al 58%?"
+    - "Cerca news su Juventus"
+    - "Calcola probabilità con spread -0.5 e total 2.5"
+    """)
+    
+    if ai_agent is None:
+        st.error("⚠️ AI Agent non disponibile. Verifica le API keys in config.py")
+    else:
+        # Inizializza chat history
+        if 'chat_history' not in st.session_state:
+            st.session_state['chat_history'] = []
+        
+        # Mostra chat history
+        chat_container = st.container()
+        with chat_container:
+            for msg in st.session_state['chat_history']:
+                if msg['role'] == 'user':
+                    st.markdown(f"""
+                    <div class="chat-message chat-user">
+                        <strong>Tu:</strong><br>
+                        {msg['content']}
+                    </div>
+                    """, unsafe_allow_html=True)
+                else:
+                    st.markdown(f"""
+                    <div class="chat-message chat-assistant">
+                        <strong>AI:</strong><br>
+                        {msg['content']}
+                    </div>
+                    """, unsafe_allow_html=True)
+        
+        # Input chat
+        st.markdown("---")
+        user_input = st.text_input(
+            "💬 Scrivi un messaggio...",
+            key="chat_input",
+            placeholder="Es: Analizza Inter vs Milan"
+        )
+        
+        col1, col2 = st.columns([1, 4])
+        with col1:
+            send_button = st.button("📤 Invia", type="primary", use_container_width=True)
+        with col2:
+            clear_button = st.button("🗑️ Pulisci Chat", use_container_width=True)
+        
+        if clear_button:
+            st.session_state['chat_history'] = []
+            if ai_agent:
+                ai_agent.clear_history()
+            st.rerun()
+        
+        if send_button and user_input:
+            # Verifica che AI agent sia disponibile
+            if ai_agent is None:
+                st.error("⚠️ AI Agent non disponibile. Verifica le API keys in config.py")
+                st.stop()
+            
+            # Aggiungi messaggio utente alla history
+            st.session_state['chat_history'].append({
+                'role': 'user',
+                'content': user_input
+            })
+            
+            # Prepara context
+            context = st.session_state.get('ai_context', {})
+            
+            # Chiama AI
+            with st.spinner("🤔 AI sta pensando..."):
+                try:
+                    result = ai_agent.chat(user_input, context=context)
+                    
+                    if result.get('error'):
+                        response = f"⚠️ Errore: {result['error']}"
+                    else:
+                        response = result.get('response', 'Nessuna risposta')
+                    
+                    # Aggiungi risposta alla history
+                    st.session_state['chat_history'].append({
+                        'role': 'assistant',
+                        'content': response
+                    })
+                    
+                    # Mostra tools usati (opzionale, solo se debug)
+                    if result.get('tools_used') and st.session_state.get('debug_mode', False):
+                        with st.expander("🔧 Tools utilizzati"):
+                            for tool in result['tools_used']:
+                                st.json(tool)
+                    
+                except Exception as e:
+                    error_msg = f"Errore durante la chat: {str(e)}"
+                    st.session_state['chat_history'].append({
+                        'role': 'assistant',
+                        'content': f"❌ {error_msg}"
+                    })
+            
+            st.rerun()
 
 # Footer
 st.markdown("---")
