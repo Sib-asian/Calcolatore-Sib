@@ -53,12 +53,26 @@ class WebSearchFree:
         try:
             with DDGS() as ddgs:
                 results = []
-                for r in ddgs.text(query, max_results=max_results):
-                    results.append({
-                        'title': r.get('title', ''),
-                        'snippet': r.get('body', ''),
-                        'url': r.get('href', '')
-                    })
+                # Prova con timeout più lungo e retry
+                for attempt in range(2):  # Max 2 tentativi
+                    try:
+                        for r in ddgs.text(query, max_results=max_results):
+                            results.append({
+                                'title': r.get('title', ''),
+                                'snippet': r.get('body', ''),
+                                'url': r.get('href', '')
+                            })
+                        break  # Se funziona, esci dal loop retry
+                    except Exception as retry_error:
+                        if attempt == 0:  # Primo tentativo fallito
+                            print(f"DEBUG: Tentativo {attempt+1} fallito per '{query}': {retry_error}, riprovo...")
+                            import time
+                            time.sleep(1)  # Aspetta 1 secondo prima di riprovare
+                            continue
+                        else:
+                            raise retry_error
+                
+                print(f"DEBUG: Query '{query}' trovati {len(results)} risultati")
                 
                 # Salva in cache
                 if results:
@@ -66,7 +80,9 @@ class WebSearchFree:
                 
                 return results
         except Exception as e:
-            print(f"Errore ricerca DuckDuckGo: {e}")
+            print(f"Errore ricerca DuckDuckGo per '{query}': {e}")
+            # FALLBACK: restituisci almeno un risultato fittizio per test
+            # (rimuovi questo in produzione se non serve)
             return []
     
     def search_news(self, team_name: str, max_results: int = 3) -> List[Dict[str, Any]]:
