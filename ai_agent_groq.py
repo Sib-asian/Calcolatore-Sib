@@ -411,11 +411,19 @@ FORMATO:
                         }]
                     })
                     
-                    # Tronca risultato tool se troppo grande (max 500 caratteri JSON)
+                    # Tronca risultato tool se troppo grande, MA preserva sempre formatted_text
                     tool_result_str = json.dumps(tool_result)
                     if len(tool_result_str) > 500:
-                        # Se troppo grande, mantieni solo info essenziali
-                        if isinstance(tool_result, dict):
+                        # Se troppo grande, mantieni formatted_text se presente
+                        if isinstance(tool_result, dict) and tool_result.get("formatted_text"):
+                            simplified = {
+                                "success": tool_result.get("success", False),
+                                "formatted_text": tool_result.get("formatted_text"),  # PRESERVA SEMPRE formatted_text
+                                "instruction": tool_result.get("instruction", ""),
+                                "team": tool_result.get("team", "")
+                            }
+                            tool_result_str = json.dumps(simplified)
+                        elif isinstance(tool_result, dict):
                             simplified = {
                                 "success": tool_result.get("success", False),
                                 "summary": f"Tool {tool_name} completato. Dati disponibili ma troncati per limiti token."
@@ -443,6 +451,22 @@ FORMATO:
             
             # Risposta finale
             final_response = message.content or "Non ho potuto generare una risposta."
+            
+            # FORZA inclusione formatted_text se presente nei tool results
+            formatted_texts = []
+            for tool_used in tools_used:
+                if tool_used.get("tool") == "get_team_news":
+                    result = tool_used.get("result", {})
+                    if isinstance(result, dict) and result.get("formatted_text"):
+                        formatted_texts.append(result["formatted_text"])
+            
+            # Se ci sono formatted_texts ma non sono nella risposta, aggiungili
+            if formatted_texts and not any(ft in final_response for ft in formatted_texts):
+                # Aggiungi formatted_texts alla risposta
+                news_section = "\n\n## News e Informazioni\n"
+                for ft in formatted_texts:
+                    news_section += ft + "\n\n"
+                final_response += news_section
             
             # Aggiungi risposta alla history
             self.conversation_history.append({
