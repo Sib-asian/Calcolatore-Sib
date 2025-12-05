@@ -73,8 +73,19 @@ class TextParserAdvanced:
             'anche', 'pure', 'solo', 'sempre', 'mai', 'già', 'ancora', 'poi', 'dopo',
             'tonfo', 'rilasciato', 'occup', 'noccup', 'sage', 'in', 'stato',
             'zidane', 'allegri', 'de', 'zerbi', 'rabiot', 'hojbjerg', 'henrique',
-            'calcio', 'squadra', 'partita', 'match', 'gol', 'goal', 'campo', 'stadio'
+            'calcio', 'squadra', 'partita', 'match', 'gol', 'goal', 'campo', 'stadio',
+            # Escludi nomi prodotti/videogiochi
+            'victory', 'road', 'standard', 'edition', 'inazuma', 'eleven', 'sports', 'fc',
+            'ea', 'sports', 'amazon', 'disponibile', 'sconto', 'gioco', 'completo', 'include',
+            'germania', 'trentanove', 'colombia', 'nuova', 'zelanda', 'australia'
         }
+        
+        # Pattern per escludere nomi prodotti/videogiochi
+        product_patterns = [
+            r'victory\s+road', r'standard\s+edition', r'inazuma\s+eleven',
+            r'ea\s+sports', r'sports\s+fc', r'edition\s+per', r'disponibile\s+su',
+            r'germania\s+trentanove', r'colombia.*nuova\s+zelanda'
+        ]
         
         # Metodo 1: Regex patterns (sempre disponibile)
         for pattern in self.name_patterns:
@@ -91,8 +102,16 @@ class TextParserAdvanced:
                             if all(len(word) >= 3 for word in words):
                                 # Filtra se contiene numeri o caratteri speciali (tranne trattino)
                                 if all(re.match(r'^[A-Za-zÀ-ÿ-]+$', word) for word in words):
-                                    # Filtra se è una frase comune (es: "Che tonfo", "Anche Allegri")
-                                    if not any(phrase in match.lower() for phrase in ['che tonfo', 'anche allegri', 'zidane anche', 'per sei', 'anni uno', 'ha rilasciato', 'stato noccup']):
+                                    # Filtra se è una frase comune o nome prodotto
+                                    excluded_phrases = [
+                                        'che tonfo', 'anche allegri', 'zidane anche', 'per sei', 'anni uno',
+                                        'ha rilasciato', 'stato noccup', 'victory road', 'standard edition',
+                                        'inazuma eleven', 'ea sports', 'sports fc', 'edition per',
+                                        'germania trentanove', 'nuova zelanda', 'manuel neuer'  # Neuer è un giocatore ma qui è false positive
+                                    ]
+                                    # Escludi se matcha pattern prodotti
+                                    is_product = any(re.search(pattern, match.lower()) for pattern in product_patterns)
+                                    if not is_product and not any(phrase in match.lower() for phrase in excluded_phrases):
                                         names.add(match.strip())
         
         # Metodo 2: spacy NLP (se disponibile) - migliora accuratezza

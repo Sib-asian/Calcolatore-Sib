@@ -86,13 +86,58 @@ class TeamSearchIntelligent:
         Trova il nome completo di una squadra usando Wikipedia
         
         Args:
-            team_name: Nome squadra (es: "brest", "monaco")
+            team_name: Nome squadra (es: "brest", "monaco", "benfica", "sporting")
             
         Returns:
-            Nome completo (es: "Stade Brestois 29") o None
+            Nome completo (es: "Stade Brestois 29", "S.L. Benfica", "Sporting CP") o None
         """
+        # Mappa alias comuni per squadre famose
+        team_aliases = {
+            'benfica': ['S.L. Benfica', 'Benfica', 'Sport Lisboa e Benfica'],
+            'sporting': ['Sporting CP', 'Sporting Clube de Portugal', 'Sporting Lisbona'],
+            'porto': ['FC Porto', 'Porto', 'Futebol Clube do Porto'],
+            'inter': ['Inter', 'Inter Milan', 'FC Internazionale Milano'],
+            'milan': ['AC Milan', 'Milan', 'Associazione Calcio Milan'],
+            'juve': ['Juventus', 'Juventus FC'],
+            'roma': ['AS Roma', 'Roma'],
+            'lazio': ['SS Lazio', 'Lazio'],
+            'napoli': ['SSC Napoli', 'Napoli'],
+            'atalanta': ['Atalanta BC', 'Atalanta'],
+            'fiorentina': ['ACF Fiorentina', 'Fiorentina'],
+            'bologna': ['Bologna FC 1909', 'Bologna'],
+            'barca': ['FC Barcelona', 'Barcelona', 'Barça'],
+            'real': ['Real Madrid', 'Real Madrid CF'],
+            'atletico': ['Atlético Madrid', 'Atletico Madrid'],
+            'psg': ['Paris Saint-Germain', 'PSG'],
+            'lyon': ['Olympique Lyonnais', 'Lyon'],
+            'marsiglia': ['Olympique de Marseille', 'Marseille', 'OM'],
+            'lilla': ['Lille OSC', 'Lille'],
+            'monaco': ['AS Monaco', 'Monaco'],
+            'brest': ['Stade Brestois 29', 'Brest'],
+            'mainz': ['1. FSV Mainz 05', 'Mainz 05', 'Mainz'],
+            'monchengladbach': ['Borussia Mönchengladbach', 'Mönchengladbach', 'Gladbach'],
+            'dortmund': ['Borussia Dortmund', 'Dortmund'],
+            'bayern': ['FC Bayern München', 'Bayern Munich', 'Bayern'],
+            'liverpool': ['Liverpool FC', 'Liverpool'],
+            'city': ['Manchester City', 'Man City'],
+            'united': ['Manchester United', 'Man United'],
+            'chelsea': ['Chelsea FC', 'Chelsea'],
+            'arsenal': ['Arsenal FC', 'Arsenal'],
+            'tottenham': ['Tottenham Hotspur', 'Spurs'],
+            'ajax': ['AFC Ajax', 'Ajax'],
+            'psv': ['PSV Eindhoven', 'PSV'],
+            'feyenoord': ['Feyenoord', 'Feyenoord Rotterdam']
+        }
+        
+        normalized = self._normalize_team_name(team_name)
+        
+        # Controlla alias prima
+        for alias, full_names in team_aliases.items():
+            if alias in normalized or normalized in alias:
+                return full_names[0]  # Restituisci il primo nome completo
+        
         # Controlla cache
-        cache_key = f"team_name_{team_name.lower()}"
+        cache_key = f"team_name_{normalized}"
         cached = self.cache.get_cached_search(cache_key)
         if cached and isinstance(cached, list) and len(cached) > 0:
             if isinstance(cached[0], dict) and 'full_name' in cached[0]:
