@@ -161,21 +161,12 @@ class AIAgentGroq:
                     "title": lineup.get("title", "")[:100] if isinstance(lineup, dict) else str(lineup)[:100]
                 })
             
-            # Prepara messaggio FORMATTATO che l'AI deve mostrare direttamente
+            # Prepara messaggio FORMATTATO - SOLO info essenziali match-day
             formatted_output = []
             
-            if news_truncated:
-                formatted_output.append(f"**News per {team_name}:**")
-                for i, news in enumerate(news_truncated, 1):
-                    title = news.get('title', '')
-                    snippet = news.get('snippet', '')
-                    if title:
-                        formatted_output.append(f"{i}. {title}")
-                        if snippet:
-                            formatted_output.append(f"   {snippet}")
-            
+            # Infortuni
             if injuries_truncated:
-                formatted_output.append(f"\n**Infortuni per {team_name}:**")
+                formatted_output.append(f"**Infortuni per {team_name}:**")
                 for injury in injuries_truncated:
                     if isinstance(injury, dict):
                         player = injury.get('player', '')
@@ -185,18 +176,27 @@ class AIAgentGroq:
                     else:
                         formatted_output.append(f"- {injury}")
             
+            # Indisponibili (squalificati, sospesi)
+            unavailable = news_data.get('unavailable', [])
+            if unavailable:
+                formatted_output.append(f"\n**Indisponibili per {team_name}:**")
+                for unav in unavailable[:5]:  # Max 5
+                    if isinstance(unav, dict):
+                        player = unav.get('player', '')
+                        status = unav.get('status', '')
+                        if player:
+                            formatted_output.append(f"- {player} ({status})")
+                    else:
+                        formatted_output.append(f"- {unav}")
+            
+            # Formazioni
             if formations:
-                formatted_output.append(f"\n**Formazioni per {team_name}:**")
-                for formation in formations:
+                formatted_output.append(f"\n**Formazione probabile per {team_name}:**")
+                for formation in formations[:2]:  # Max 2 formazioni
                     formatted_output.append(f"- {formation}")
             
-            if players_mentioned:
-                formatted_output.append(f"\n**Giocatori chiave per {team_name}:**")
-                for player in players_mentioned[:5]:  # Max 5
-                    formatted_output.append(f"- {player}")
-            
             if not formatted_output:
-                formatted_output.append(f"**Nessuna news/infortunio trovato per {team_name}**")
+                formatted_output.append(f"**Nessuna informazione essenziale trovata per {team_name}**")
             
             # Restituisci sia formato strutturato che testo pre-formattato
             return {
