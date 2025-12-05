@@ -120,12 +120,33 @@ class AIAgentGroq:
         elif tool_name == "get_team_news":
             team_name = arguments.get("team_name", "")
             news_data = self.news_aggregator.get_team_news(team_name)
+            
+            # Tronca news per ridurre token (solo titolo e snippet breve)
+            news_truncated = []
+            for article in news_data.get("news", [])[:3]:  # Max 3 news
+                news_truncated.append({
+                    "title": article.get("title", "")[:100],  # Max 100 caratteri
+                    "snippet": article.get("snippet", "")[:150] if article.get("snippet") else ""  # Max 150 caratteri
+                })
+            
+            injuries_truncated = []
+            for injury in news_data.get("injuries", [])[:2]:  # Max 2 infortuni
+                injuries_truncated.append({
+                    "title": injury.get("title", "")[:100]
+                })
+            
+            lineup_truncated = []
+            for lineup in news_data.get("lineup", [])[:2]:  # Max 2 formazioni
+                lineup_truncated.append({
+                    "title": lineup.get("title", "")[:100]
+                })
+            
             return {
                 "success": True,
                 "team": team_name,
-                "news": news_data.get("news", [])[:5],
-                "injuries": news_data.get("injuries", [])[:3],
-                "lineup": news_data.get("lineup", [])[:3],
+                "news": news_truncated,
+                "injuries": injuries_truncated,
+                "lineup": lineup_truncated,
                 "source": news_data.get("source", "unknown")
             }
         
@@ -169,30 +190,20 @@ class AIAgentGroq:
     
     def _build_system_prompt(self, context: Dict[str, Any] = None) -> str:
         """Costruisce il prompt di sistema"""
-        base_prompt = """Sei un assistente esperto di scommesse calcistiche e analisi statistica.
-Il tuo compito è aiutare l'utente ad analizzare partite di calcio, calcolare probabilità e fornire insights basati su dati reali.
+        base_prompt = """Assistente scommesse calcistiche. Risposte BREVI (max 300 parole).
 
-REGOLE IMPORTANTI:
-1. Risposte CONCISE e CHIARE (mobile-friendly)
-2. Usa sempre dati concreti quando disponibili
-3. Spiega i calcoli in modo semplice
-4. Evita speculazioni senza dati
-5. Se non hai dati, dillo chiaramente
-6. Formatta risposte per essere leggibili su smartphone
-7. **CRITICO**: Quando recuperi news/infortuni/formazioni con get_team_news, DEVI MOSTRARLI nel testo, non solo dire che esistono!
+REGOLE:
+1. Risposte CONCISE
+2. Usa dati concreti
+3. Quando usi get_team_news: MOSTRA titoli news (max 3), infortuni (max 2)
+4. NON dire solo "ci sono news", MOSTRALE!
 
-STRUMENTI DISPONIBILI:
-- search_web: Cerca informazioni sul web
-- get_team_news: Recupera news, infortuni, formazioni squadre
-- calculate_probabilities: Calcola probabilità mercati scommesse
+STRUMENTI:
+- get_team_news: News/infortuni/formazioni
+- search_web: Ricerca web
+- calculate_probabilities: Calcola probabilità
 
-QUANDO USI get_team_news:
-- Se trovi news: mostra titolo e breve descrizione di ogni news
-- Se trovi infortuni: lista i giocatori infortunati
-- Se trovi formazioni: descrivi la formazione probabile
-- NON dire solo "ci sono news disponibili", MOSTRALE effettivamente!
-
-Quando l'utente chiede analisi, usa gli strumenti disponibili per ottenere dati reali e MOSTRA i risultati nel testo."""
+Usa i tools e MOSTRA i risultati nel testo."""
         
         if context:
             context_str = "\n\nCONTESTO ATTUALE:\n"
