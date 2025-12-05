@@ -79,7 +79,7 @@ class AIAgentGroq:
                 "type": "function",
                 "function": {
                     "name": "calculate_probabilities",
-                    "description": "Calcola probabilità mercati scommesse basate su spread e total.",
+                    "description": "OBBLIGATORIO: Calcola probabilità mercati scommesse. USA SEMPRE questo tool se spread/total sono disponibili nel context. Restituisce probabilità esatte per 1X2, GG/NG, Over/Under, ecc.",
                     "parameters": {
                         "type": "object",
                         "properties": {
