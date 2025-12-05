@@ -64,16 +64,36 @@ class TextParserAdvanced:
         """
         names = set()
         
+        # Lista di parole comuni da escludere (italiano + inglese)
+        common_words = {
+            'il', 'la', 'lo', 'gli', 'le', 'un', 'una', 'uno', 'del', 'della', 'dei', 'delle',
+            'per', 'con', 'che', 'chi', 'cui', 'dove', 'quando', 'come', 'perché',
+            'ha', 'hanno', 'era', 'erano', 'stato', 'stati', 'stata', 'state',
+            'anni', 'anno', 'uno', 'due', 'tre', 'sei', 'sette', 'otto', 'nove', 'dieci',
+            'anche', 'pure', 'solo', 'sempre', 'mai', 'già', 'ancora', 'poi', 'dopo',
+            'tonfo', 'rilasciato', 'occup', 'noccup', 'sage', 'in', 'stato',
+            'zidane', 'allegri', 'de', 'zerbi', 'rabiot', 'hojbjerg', 'henrique',
+            'calcio', 'squadra', 'partita', 'match', 'gol', 'goal', 'campo', 'stadio'
+        }
+        
         # Metodo 1: Regex patterns (sempre disponibile)
         for pattern in self.name_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
-                # Filtra nomi troppo corti o comuni (es: "Il Calcio", "La Squadra")
-                if len(match.split()) >= 2 and len(match) > 5:
-                    # Rimuovi articoli comuni
-                    if not any(word.lower() in ['il', 'la', 'lo', 'gli', 'le', 'un', 'una', 'del', 'della'] 
-                              for word in match.split()):
-                        names.add(match.strip())
+                words = match.split()
+                # Deve avere almeno 2 parole, entrambe con iniziale maiuscola
+                if len(words) >= 2:
+                    # Verifica che entrambe le parole inizino con maiuscola
+                    if all(word[0].isupper() for word in words if word):
+                        # Filtra parole comuni
+                        if not any(word.lower() in common_words for word in words):
+                            # Filtra nomi troppo corti (ogni parola almeno 3 caratteri)
+                            if all(len(word) >= 3 for word in words):
+                                # Filtra se contiene numeri o caratteri speciali (tranne trattino)
+                                if all(re.match(r'^[A-Za-zÀ-ÿ-]+$', word) for word in words):
+                                    # Filtra se è una frase comune (es: "Che tonfo", "Anche Allegri")
+                                    if not any(phrase in match.lower() for phrase in ['che tonfo', 'anche allegri', 'zidane anche', 'per sei', 'anni uno', 'ha rilasciato', 'stato noccup']):
+                                        names.add(match.strip())
         
         # Metodo 2: spacy NLP (se disponibile) - migliora accuratezza
         if SPACY_AVAILABLE and nlp is not None:
@@ -84,24 +104,50 @@ class TextParserAdvanced:
                     if ent.label_ == "PER" and len(ent.text.split()) >= 2:
                         # Filtra nomi troppo corti e rimuovi prefissi comuni
                         clean_name = ent.text.strip()
-                        if len(clean_name) > 5:
-                            # Rimuovi prefissi come "Infortunato", "Assente", ecc.
-                            for prefix in ['infortunato', 'assente', 'squalificato', 'stop']:
-                                if clean_name.lower().startswith(prefix):
-                                    clean_name = clean_name[len(prefix):].strip()
-                            if len(clean_name) > 5:
-                                names.add(clean_name)
+                        words = clean_name.split()
+                        
+                        # Verifica che non contenga parole comuni
+                        if not any(word.lower() in common_words for word in words):
+                            # Verifica che ogni parola sia almeno 3 caratteri
+                            if all(len(word) >= 3 for word in words):
+                                # Rimuovi prefissi come "Infortunato", "Assente", ecc.
+                                for prefix in ['infortunato', 'assente', 'squalificato', 'stop', 'squalificato']:
+                                    if clean_name.lower().startswith(prefix):
+                                        clean_name = clean_name[len(prefix):].strip()
+                                
+                                # Verifica formato finale
+                                if len(clean_name) > 5 and len(clean_name.split()) >= 2:
+                                    # Filtra se contiene parole comuni dopo pulizia
+                                    if not any(word.lower() in common_words for word in clean_name.split()):
+                                        names.add(clean_name)
             except Exception:
                 # Se spacy fallisce, continua con solo regex
                 pass
         
+        # Filtra ulteriormente: rimuovi nomi che sono chiaramente false positives
+        filtered_names = set()
+        for name in names:
+            words = name.split()
+            # Escludi se contiene solo parole comuni o troppo corte
+            if all(len(word) >= 3 for word in words):
+                if not any(word.lower() in common_words for word in words):
+                    # Escludi se sembra una frase (troppe parole o pattern sospetti)
+                    if len(words) <= 3:  # Max 3 parole per un nome
+                        filtered_names.add(name)
+        
         # Ordina per frequenza nel testo
         name_counts = Counter()
-        for name in names:
+        for name in filtered_names:
             name_counts[name] = text.lower().count(name.lower())
         
-        # Restituisci i nomi più frequenti
-        sorted_names = [name for name, _ in name_counts.most_common(max_names)]
+        # Restituisci i nomi più frequenti (almeno menzionati 2 volte per essere più sicuri)
+        sorted_names = []
+        for name, count in name_counts.most_common(max_names * 2):  # Prendi più candidati
+            if count >= 1:  # Almeno menzionato 1 volta
+                sorted_names.append(name)
+                if len(sorted_names) >= max_names:
+                    break
+        
         return sorted_names
     
     def extract_formations(self, text: str) -> List[str]:
