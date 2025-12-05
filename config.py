@@ -2,18 +2,25 @@
 Configurazione API per AI Agent
 """
 import os
+from pathlib import Path
+
+# Carica variabili d'ambiente da file .env se presente
+try:
+    from dotenv import load_dotenv
+    env_path = Path(__file__).parent / '.env'
+    if env_path.exists():
+        load_dotenv(env_path)
+except ImportError:
+    # python-dotenv non installato, usa solo variabili d'ambiente di sistema
+    pass
 
 # Groq API (LLM gratuito)
-# IMPORTANTE: Usa variabili d'ambiente per sicurezza
-# Imposta: export GROQ_API_KEY="your_key_here" (Linux/Mac)
-# Imposta: set GROQ_API_KEY=your_key_here (Windows)
+# Legge da variabile d'ambiente o file .env
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = "llama-3.1-70b-versatile"  # Modello gratuito veloce
 
 # NewsAPI (gratuito - 100 richieste/giorno)
-# IMPORTANTE: Usa variabili d'ambiente per sicurezza
-# Imposta: export NEWS_API_KEY="your_key_here" (Linux/Mac)
-# Imposta: set NEWS_API_KEY=your_key_here (Windows)
+# Legge da variabile d'ambiente o file .env
 NEWS_API_KEY = os.getenv("NEWS_API_KEY", "")
 NEWS_API_BASE_URL = "https://newsapi.org/v2"
 
