@@ -60,9 +60,9 @@ class NewsAggregatorFree:
             for query in queries:
                 params = {
                     'q': query,
-                    'language': 'it',  # Italiano
+                    'language': 'it,en,pt,es',  # Multilingua per più risultati
                     'sortBy': 'publishedAt',
-                    'pageSize': 5,
+                    'pageSize': max_results,
                     'apiKey': config.NEWS_API_KEY
                 }
             
@@ -79,10 +79,11 @@ class NewsAggregatorFree:
                     # Formatta risultati
                     results = []
                     for article in articles:
-                        if article.get('title') and article.get('description'):
+                        if article.get('title'):
                             results.append({
                                 'title': article.get('title', ''),
-                                'snippet': article.get('description', ''),
+                                'description': article.get('description', ''),
+                                'content': article.get('content', ''),
                                 'url': article.get('url', ''),
                                 'date': article.get('publishedAt', ''),
                                 'source': article.get('source', {}).get('name', '')
@@ -134,16 +135,62 @@ class NewsAggregatorFree:
         all_formations = []
         all_unavailable = []
         
-        # 1. Cerca INFORTUNI con query specifiche MULTILINGUA (approfondita)
+        # PRIORITÀ 1: Prova NewsAPI (più affidabile di DuckDuckGo)
         try:
-            injuries_results = self.web_search.search_injuries(team_name)
-            print(f"DEBUG: Trovati {len(injuries_results)} risultati per infortuni {team_name}")
-            if not injuries_results:
-                print(f"DEBUG: Nessun risultato per infortuni {team_name}, provo query generiche...")
-                # FALLBACK: prova query generiche se quelle specifiche non funzionano
-                generic_results = self.web_search.search_web(f"{team_name} news", max_results=5)
-                injuries_results = generic_results
+            print(f"DEBUG: Provo NewsAPI per {team_name}...")
+            newsapi_results = self._get_news_from_newsapi(team_name)
+            print(f"DEBUG: NewsAPI trovati {len(newsapi_results) if newsapi_results else 0} risultati")
             
+            # Processa risultati NewsAPI
+            if newsapi_results:
+                for article in newsapi_results:
+                    title = article.get('title', '')
+                    description = article.get('description', '')
+                    content = article.get('content', '')
+                    full_text = f"{title} {description} {content}"
+                    
+                    # Cerca infortuni
+                    parsed = self.text_parser.parse_news_article(title, description or content)
+                    if parsed.get('injuries'):
+                        all_injuries.extend(parsed['injuries'])
+                        print(f"DEBUG: NewsAPI - Estratti {len(parsed['injuries'])} infortuni")
+                    
+                    # Cerca formazioni
+                    if parsed.get('formations'):
+                        all_formations.extend(parsed['formations'])
+                        print(f"DEBUG: NewsAPI - Estratte {len(parsed['formations'])} formazioni")
+                    
+                    # FALLBACK: cerca keywords anche senza parsing strutturato
+                    if any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato']):
+                        players = self.text_parser.extract_player_names(full_text, max_names=3)
+                        for player in players:
+                            if not any(i.get('player', '') == player for i in all_injuries if isinstance(i, dict)):
+                                all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
+                                print(f"DEBUG: NewsAPI - Estratto infortunio fallback: {player}")
+                    
+                    # Cerca formazioni anche senza parsing strutturato
+                    formations_found = self.text_parser.extract_formations(full_text)
+                    if formations_found:
+                        all_formations.extend(formations_found)
+                        print(f"DEBUG: NewsAPI - Estratte formazioni fallback: {formations_found}")
+        except Exception as e:
+            print(f"DEBUG: Errore NewsAPI: {e}")
+        
+        # PRIORITÀ 2: Prova DuckDuckGo solo se NewsAPI non ha trovato abbastanza risultati
+        if len(all_injuries) < 3:
+            try:
+                print(f"DEBUG: NewsAPI insufficiente, provo DuckDuckGo per {team_name}...")
+                injuries_results = self.web_search.search_injuries(team_name)
+                print(f"DEBUG: DuckDuckGo trovati {len(injuries_results)} risultati per infortuni")
+                if not injuries_results:
+                    try:
+                        generic_results = self.web_search.search_web(f"{team_name} news", max_results=5)
+                        injuries_results = generic_results
+                        print(f"DEBUG: Query generiche DuckDuckGo trovate {len(generic_results)} risultati")
+                    except Exception as e:
+                        print(f"DEBUG: Errore query generiche DuckDuckGo: {e}")
+                        injuries_results = []
+                
                 for injury_result in injuries_results:
                     title = injury_result.get('title', '')
                     snippet = injury_result.get('snippet', '')
