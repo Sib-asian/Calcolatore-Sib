@@ -48,10 +48,12 @@ class NewsAggregatorFree:
             full_name, _ = self.team_search.get_team_search_queries(team_name)
             
             # Query ottimizzata con nome completo
-            # Prova prima con nome completo, poi con originale
+            # Prova prima con nome completo, poi con originale, poi generiche
             queries = [
                 f"{full_name} AND (calcio OR football OR soccer)",
-                f"{team_name} AND (calcio OR football OR soccer)"
+                f"{team_name} AND (calcio OR football OR soccer)",
+                f"{full_name}",  # Query più generica
+                f"{team_name}"   # Query ancora più generica
             ]
             
             url = f"{config.NEWS_API_BASE_URL}/everything"
