@@ -42,10 +42,10 @@ class WebSearchFree:
         Returns:
             Lista di risultati con 'title', 'snippet', 'url'
         """
-        # Controlla cache
-        cached = self.cache.get_cached_search(query)
-        if cached:
-            return cached[:max_results]
+        # Controlla cache (TEMPORANEAMENTE DISABILITATO per test)
+        # cached = self.cache.get_cached_search(query)
+        # if cached:
+        #     return cached[:max_results]
         
         # Rate limiting
         self._rate_limit()

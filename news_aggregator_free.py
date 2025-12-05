@@ -117,10 +117,10 @@ class NewsAggregatorFree:
         Returns:
             Dict con 'injuries', 'formations', 'unavailable', 'match_notes' (NO news generiche)
         """
-        # Controlla cache
-        cached = self.cache.get_cached_news(team_name)
-        if cached:
-            return cached
+        # Controlla cache (TEMPORANEAMENTE DISABILITATO per test)
+        # cached = self.cache.get_cached_news(team_name)
+        # if cached:
+        #     return cached
         
         result = {
             'injuries': [],
@@ -170,8 +170,13 @@ class NewsAggregatorFree:
             if not lineup_results:
                 print(f"DEBUG: Nessun risultato per formazioni {team_name}, provo query generiche...")
                 # FALLBACK: prova query generiche
-                generic_results = self.web_search.search_web(f"{team_name} lineup", max_results=5)
-                lineup_results = generic_results
+                try:
+                    generic_results = self.web_search.search_web(f"{team_name} lineup", max_results=5)
+                    lineup_results = generic_results
+                    print(f"DEBUG: Query generiche formazioni trovate {len(generic_results)} risultati")
+                except Exception as e:
+                    print(f"DEBUG: Errore query generiche formazioni: {e}")
+                    lineup_results = []
             
             for lineup_result in lineup_results:
                 title = lineup_result.get('title', '')
