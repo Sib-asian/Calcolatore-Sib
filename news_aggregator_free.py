@@ -10,8 +10,15 @@ import config
 from cache_manager import CacheManager
 from web_search_free import WebSearchFree
 from team_search_intelligent import TeamSearchIntelligent
-from rss_feeds_aggregator import RSSFeedsAggregator
 from text_parser_advanced import TextParserAdvanced
+
+# RSS Feeds opzionale (richiede feedparser che può avere problemi di dipendenze)
+try:
+    from rss_feeds_aggregator import RSSFeedsAggregator
+    RSS_AVAILABLE = True
+except ImportError:
+    RSS_AVAILABLE = False
+    print("INFO: RSSFeedsAggregator non disponibile (feedparser mancante)")
 
 class NewsAggregatorFree:
     """Aggrega news da NewsAPI e DuckDuckGo con cache intelligente"""
@@ -20,7 +27,7 @@ class NewsAggregatorFree:
         self.cache = CacheManager()
         self.web_search = WebSearchFree()
         self.team_search = TeamSearchIntelligent()
-        self.rss_aggregator = RSSFeedsAggregator()
+        self.rss_aggregator = RSSFeedsAggregator() if RSS_AVAILABLE else None
         self.text_parser = TextParserAdvanced()
         self.news_api_requests_today = 0
         self.last_reset_date = time.strftime('%Y-%m-%d')
@@ -34,35 +41,45 @@ class NewsAggregatorFree:
             self.last_reset_date = today
             self.news_api_available = True
     
-    def _get_news_from_newsapi(self, team_name: str) -> Optional[List[Dict[str, Any]]]:
+    def _get_news_from_newsapi(self, team_name: str, max_results: int = 10) -> Optional[List[Dict[str, Any]]]:
         """Recupera news da NewsAPI se disponibile usando nome completo squadra"""
         self._check_daily_limit()
-        
+
         # Controlla limite giornaliero
         if self.news_api_requests_today >= config.NEWS_API_RATE_LIMIT_PER_DAY:
             self.news_api_available = False
             return None
-        
+
         try:
             # Ottieni nome completo squadra
             full_name, _ = self.team_search.get_team_search_queries(team_name)
-            
-            # Query ottimizzata con nome completo
-            # Prova prima con nome completo, poi con originale, poi generiche
+
+            # Query ottimizzata: SEMPLICI per massimizzare risultati
+            # NewsAPI free tier ha pochi articoli recenti, query troppo complesse = 0 risultati
             queries = [
-                f"{full_name} AND (calcio OR football OR soccer)",
-                f"{team_name} AND (calcio OR football OR soccer)",
-                f"{full_name}",  # Query più generica
-                f"{team_name}"   # Query ancora più generica
+                f"{full_name}",  # Nome completo
+                f"{team_name}"   # Nome originale come fallback
             ]
-            
+
             url = f"{config.NEWS_API_BASE_URL}/everything"
-            
+
             # Prova prima query (nome completo)
             for query in queries:
+                # Lingua basata sul nome squadra per migliori risultati
+                if any(x in team_name.lower() for x in ['bayern', 'dortmund', 'leipzig']):
+                    lang = 'de,en'  # Tedesco + Inglese per Bundesliga
+                elif any(x in team_name.lower() for x in ['psg', 'marseille', 'lyon', 'monaco']):
+                    lang = 'fr,en'  # Francese + Inglese per Ligue 1
+                elif any(x in team_name.lower() for x in ['benfica', 'porto', 'sporting']):
+                    lang = 'pt,en'  # Portoghese + Inglese
+                elif any(x in team_name.lower() for x in ['barcelona', 'real madrid', 'atletico']):
+                    lang = 'es,en'  # Spagnolo + Inglese
+                else:
+                    lang = 'en,it'  # Default: Inglese + Italiano
+
                 params = {
                     'q': query,
-                    'language': 'it,en,pt,es',  # Multilingua per più risultati
+                    'language': lang,
                     'sortBy': 'publishedAt',
                     'pageSize': max_results,
                     'apiKey': config.NEWS_API_KEY
