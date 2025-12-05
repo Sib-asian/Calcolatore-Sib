@@ -144,56 +144,52 @@ class NewsAggregatorFree:
                 generic_results = self.web_search.search_web(f"{team_name} news", max_results=5)
                 injuries_results = generic_results
             
-            for injury_result in injuries_results:
-                title = injury_result.get('title', '')
-                snippet = injury_result.get('snippet', '')
-                # Combina title e snippet per parsing migliore
-                full_text = f"{title} {snippet}"
-                parsed = self.text_parser.parse_news_article(title, snippet)
-                if parsed.get('injuries'):
-                    all_injuries.extend(parsed['injuries'])
-                    print(f"DEBUG: Estratti {len(parsed['injuries'])} infortuni da: {title[:50]}")
-                # FALLBACK: se il parsing non trova infortuni strutturati, cerca keywords nel testo
-                elif any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato', 'lesionado', 'blessé']):
-                    # Estrai nomi dal testo anche senza pattern strutturati
-                    players = self.text_parser.extract_player_names(full_text, max_names=3)
-                    for player in players:
-                        all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
-                        print(f"DEBUG: Estratto infortunio fallback: {player}")
-        except Exception as e:
-            print(f"Errore ricerca infortuni: {e}")
-        
-        # 2. Cerca FORMAZIONI con query specifiche MULTILINGUA (approfondita)
-        try:
-            lineup_results = self.web_search.search_lineup(team_name)
-            print(f"DEBUG: Trovati {len(lineup_results)} risultati per formazioni {team_name}")
-            if not lineup_results:
-                print(f"DEBUG: Nessun risultato per formazioni {team_name}, provo query generiche...")
-                # FALLBACK: prova query generiche
-                try:
-                    generic_results = self.web_search.search_web(f"{team_name} lineup", max_results=5)
-                    lineup_results = generic_results
-                    print(f"DEBUG: Query generiche formazioni trovate {len(generic_results)} risultati")
-                except Exception as e:
-                    print(f"DEBUG: Errore query generiche formazioni: {e}")
-                    lineup_results = []
-            
-            for lineup_result in lineup_results:
-                title = lineup_result.get('title', '')
-                snippet = lineup_result.get('snippet', '')
-                parsed = self.text_parser.parse_news_article(title, snippet)
-                if parsed.get('formations'):
-                    all_formations.extend(parsed['formations'])
-                    print(f"DEBUG: Estratte {len(parsed['formations'])} formazioni da: {title[:50]}")
-                # FALLBACK: cerca pattern formazioni nel testo anche senza parsing strutturato
-                else:
+                for injury_result in injuries_results:
+                    title = injury_result.get('title', '')
+                    snippet = injury_result.get('snippet', '')
                     full_text = f"{title} {snippet}"
-                    formations_found = self.text_parser.extract_formations(full_text)
-                    if formations_found:
-                        all_formations.extend(formations_found)
-                        print(f"DEBUG: Estratte formazioni fallback: {formations_found}")
-        except Exception as e:
-            print(f"Errore ricerca formazioni: {e}")
+                    parsed = self.text_parser.parse_news_article(title, snippet)
+                    if parsed.get('injuries'):
+                        all_injuries.extend(parsed['injuries'])
+                        print(f"DEBUG: DuckDuckGo - Estratti {len(parsed['injuries'])} infortuni")
+                    elif any(kw in full_text.lower() for kw in ['injured', 'injury', 'infortunio', 'infortunato']):
+                        players = self.text_parser.extract_player_names(full_text, max_names=3)
+                        for player in players:
+                            if not any(i.get('player', '') == player for i in all_injuries if isinstance(i, dict)):
+                                all_injuries.append({'player': player, 'status': 'unknown', 'context': full_text[:100]})
+                                print(f"DEBUG: DuckDuckGo - Estratto infortunio fallback: {player}")
+            except Exception as e:
+                print(f"Errore DuckDuckGo infortuni: {e}")
+        
+        # 2. Cerca FORMAZIONI (NewsAPI già processato sopra, qui solo DuckDuckGo se necessario)
+        if len(all_formations) < 1:
+            try:
+                lineup_results = self.web_search.search_lineup(team_name)
+                print(f"DEBUG: DuckDuckGo trovati {len(lineup_results)} risultati per formazioni")
+                if not lineup_results:
+                    try:
+                        generic_results = self.web_search.search_web(f"{team_name} lineup", max_results=5)
+                        lineup_results = generic_results
+                        print(f"DEBUG: Query generiche formazioni DuckDuckGo trovate {len(generic_results)} risultati")
+                    except Exception as e:
+                        print(f"DEBUG: Errore query generiche formazioni DuckDuckGo: {e}")
+                        lineup_results = []
+                
+                for lineup_result in lineup_results:
+                    title = lineup_result.get('title', '')
+                    snippet = lineup_result.get('snippet', '')
+                    parsed = self.text_parser.parse_news_article(title, snippet)
+                    if parsed.get('formations'):
+                        all_formations.extend(parsed['formations'])
+                        print(f"DEBUG: DuckDuckGo - Estratte {len(parsed['formations'])} formazioni")
+                    else:
+                        full_text = f"{title} {snippet}"
+                        formations_found = self.text_parser.extract_formations(full_text)
+                        if formations_found:
+                            all_formations.extend(formations_found)
+                            print(f"DEBUG: DuckDuckGo - Estratte formazioni fallback: {formations_found}")
+            except Exception as e:
+                print(f"Errore DuckDuckGo formazioni: {e}")
         
         # 3. Cerca INDISPONIBILI (squalificati, sospesi) con query specifiche MULTILINGUA (approfondita)
         try:
