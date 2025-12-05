@@ -179,6 +179,16 @@ with main_tab1:
     if st.session_state.get('calculated', False):
         results = st.session_state['results']
         
+        # Mostra analisi AI automatica se disponibile
+        if st.session_state.get('ai_analysis'):
+            st.success("🤖 Analisi AI completata!")
+            with st.expander("📊 Analisi AI Automatica", expanded=True):
+                st.markdown(st.session_state['ai_analysis'])
+            st.markdown("---")
+        elif st.session_state.get('ai_analysis') == "":
+            # Analisi vuota (errore silenzioso)
+            st.warning("⚠️ Analisi AI non disponibile. Verifica che le API keys siano configurate correttamente.")
+        
         # Tabs per organizzare i risultati
         tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs([
             "📈 Riepilogo", "1️⃣ 1X2", "⚽ GG/NG & Over/Under", 
