@@ -64,7 +64,7 @@ class TextParserAdvanced:
         """
         names = set()
         
-        # Prova ogni pattern
+        # Metodo 1: Regex patterns (sempre disponibile)
         for pattern in self.name_patterns:
             matches = re.findall(pattern, text, re.IGNORECASE)
             for match in matches:
@@ -74,6 +74,26 @@ class TextParserAdvanced:
                     if not any(word.lower() in ['il', 'la', 'lo', 'gli', 'le', 'un', 'una', 'del', 'della'] 
                               for word in match.split()):
                         names.add(match.strip())
+        
+        # Metodo 2: spacy NLP (se disponibile) - migliora accuratezza
+        if SPACY_AVAILABLE and nlp is not None:
+            try:
+                doc = nlp(text)
+                # Estrai entità di tipo PERSON
+                for ent in doc.ents:
+                    if ent.label_ == "PER" and len(ent.text.split()) >= 2:
+                        # Filtra nomi troppo corti e rimuovi prefissi comuni
+                        clean_name = ent.text.strip()
+                        if len(clean_name) > 5:
+                            # Rimuovi prefissi come "Infortunato", "Assente", ecc.
+                            for prefix in ['infortunato', 'assente', 'squalificato', 'stop']:
+                                if clean_name.lower().startswith(prefix):
+                                    clean_name = clean_name[len(prefix):].strip()
+                            if len(clean_name) > 5:
+                                names.add(clean_name)
+            except Exception:
+                # Se spacy fallisce, continua con solo regex
+                pass
         
         # Ordina per frequenza nel testo
         name_counts = Counter()
