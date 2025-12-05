@@ -148,27 +148,42 @@ if st.sidebar.button("🔄 Analizza Partita", type="primary"):
             
             # Chiamata automatica AI se squadre inserite
             if ai_agent and (team_home or team_away):
-                st.session_state['ai_analysis'] = None
                 with st.spinner("🤖 AI sta analizzando la partita..."):
                     try:
                         # Prepara prompt per analisi automatica
-                        analysis_prompt = f"Analizza questa partita di calcio:\n"
+                        analysis_prompt = f"Analizza questa partita di calcio in modo dettagliato:\n\n"
                         if team_home:
-                            analysis_prompt += f"- Squadra Casa: {team_home}\n"
+                            analysis_prompt += f"Squadra Casa: {team_home}\n"
                         if team_away:
-                            analysis_prompt += f"- Squadra Trasferta: {team_away}\n"
-                        analysis_prompt += f"\nSpread Apertura: {spread_opening}, Total Apertura: {total_opening}\n"
-                        analysis_prompt += f"Spread Corrente: {spread_current}, Total Corrente: {total_current}\n"
-                        analysis_prompt += "\nFornisci un'analisi completa con:\n"
-                        analysis_prompt += "1. News recenti sulle squadre\n"
-                        analysis_prompt += "2. Infortuni e formazioni\n"
-                        analysis_prompt += "3. Analisi del movimento mercato\n"
-                        analysis_prompt += "4. Insights e raccomandazioni"
+                            analysis_prompt += f"Squadra Trasferta: {team_away}\n"
+                        analysis_prompt += f"\nDati Mercato:\n"
+                        analysis_prompt += f"- Spread Apertura: {spread_opening}, Total Apertura: {total_opening}\n"
+                        analysis_prompt += f"- Spread Corrente: {spread_current}, Total Corrente: {total_current}\n"
+                        analysis_prompt += f"\nFornisci un'analisi completa usando i tools disponibili:\n"
+                        analysis_prompt += f"1. USA get_team_news per cercare news, infortuni e formazioni per {team_home if team_home else 'la squadra casa'}\n"
+                        if team_away:
+                            analysis_prompt += f"2. USA get_team_news per cercare news, infortuni e formazioni per {team_away}\n"
+                        analysis_prompt += f"3. Analizza il movimento mercato (spread da {spread_opening} a {spread_current}, total da {total_opening} a {total_current})\n"
+                        analysis_prompt += f"4. Fornisci insights e raccomandazioni basate su tutti i dati raccolti\n\n"
+                        analysis_prompt += f"IMPORTANTE: Usa SEMPRE i tools get_team_news per ogni squadra prima di rispondere!"
                         
                         ai_result = ai_agent.chat(analysis_prompt, context=st.session_state['ai_context'])
-                        st.session_state['ai_analysis'] = ai_result.get('response', '')
+                        response = ai_result.get('response', '')
+                        if response and len(response) > 10:
+                            st.session_state['ai_analysis'] = response
+                        else:
+                            st.session_state['ai_analysis'] = f"⚠️ L'AI non ha generato una risposta valida. Risposta ricevuta: {response[:100] if response else 'vuota'}"
                     except Exception as e:
-                        st.session_state['ai_analysis'] = f"⚠️ Errore durante analisi AI: {str(e)}"
+                        error_msg = str(e)
+                        st.session_state['ai_analysis'] = f"⚠️ Errore durante analisi AI: {error_msg}"
+                        # Mostra anche errore in console per debug
+                        print(f"Errore AI analisi automatica: {error_msg}")
+            else:
+                # Nessuna squadra inserita o AI non disponibile
+                if not (team_home or team_away):
+                    st.session_state['ai_analysis'] = None
+                elif not ai_agent:
+                    st.session_state['ai_analysis'] = "⚠️ AI Agent non disponibile. Verifica le API keys in config.py o .env"
 
 # Tabs principali
 main_tab1, main_tab2 = st.tabs(["📊 Calcolatore", "🤖 AI Assistant"])
