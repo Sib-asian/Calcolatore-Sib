@@ -17,7 +17,12 @@ except ImportError:
 # Groq API (LLM gratuito)
 # Legge da variabile d'ambiente o file .env
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
-GROQ_MODEL = "llama-3.1-70b-versatile"  # Modello gratuito veloce
+# Modello aggiornato: llama-3.1-70b-versatile è stato dismesso
+# Usa uno di questi modelli disponibili:
+# - llama-3.1-8b-instant (più veloce, meno potente)
+# - llama-3.3-70b-versatile (più recente, simile al vecchio)
+# - mixtral-8x7b-32768 (molto potente)
+GROQ_MODEL = "llama-3.3-70b-versatile"  # Modello aggiornato
 
 # NewsAPI (gratuito - 100 richieste/giorno)
 # Legge da variabile d'ambiente o file .env
