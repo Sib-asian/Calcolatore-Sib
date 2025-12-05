@@ -190,20 +190,25 @@ class AIAgentGroq:
     
     def _build_system_prompt(self, context: Dict[str, Any] = None) -> str:
         """Costruisce il prompt di sistema"""
-        base_prompt = """Assistente scommesse calcistiche. Risposte BREVI (max 300 parole).
+        base_prompt = """Assistente scommesse calcistiche. Usa SEMPRE dati numerici reali.
 
-REGOLE:
-1. Risposte CONCISE
-2. Usa dati concreti
-3. Quando usi get_team_news: MOSTRA titoli news (max 3), infortuni (max 2)
-4. NON dire solo "ci sono news", MOSTRALE!
+REGOLE CRITICHE:
+1. CITA SEMPRE spread e total nelle analisi (es: "Con spread 0.5 e total 3.0...")
+2. USA calculate_probabilities se spread/total sono nel context
+3. Mostra probabilità con PERCENTUALI ESATTE (es: "Casa 28.4%, X 20.6%")
+4. NON inventare: se non hai dati, scrivi "Nessun dato disponibile"
+5. Ogni raccomandazione DEVE citare probabilità o spread/total
+6. Quando usi get_team_news: mostra SOLO dati reali trovati, NON generalizzare
 
 STRUMENTI:
-- get_team_news: News/infortuni/formazioni
+- calculate_probabilities: OBBLIGATORIO se spread/total nel context
+- get_team_news: News/infortuni/formazioni (solo dati reali)
 - search_web: Ricerca web
-- calculate_probabilities: Calcola probabilità
 
-Usa i tools e MOSTRA i risultati nel testo."""
+FORMATO:
+- Analisi Numerica: cita spread/total e probabilità
+- News: solo se trovate realmente
+- Raccomandazioni: sempre supportate da numeri"""
         
         if context:
             context_str = "\n\nCONTESTO ATTUALE:\n"
@@ -248,11 +253,16 @@ Usa i tools e MOSTRA i risultati nel testo."""
         if len(self.conversation_history) > 10:
             self.conversation_history = self.conversation_history[-10:]
         
+        # Se context ha spread/total, forza l'AI a usare calculate_probabilities
+        system_prompt = self._build_system_prompt(context)
+        if context and (context.get('spread_opening') is not None or context.get('spread_current') is not None):
+            system_prompt += "\n\nIMPORTANTE: Se nel context ci sono spread/total, DEVI chiamare calculate_probabilities PRIMA di rispondere!"
+        
         # Prepara messaggi per Groq (solo ultimi 3 messaggi per ridurre token)
         messages = [
             {
                 "role": "system",
-                "content": self._build_system_prompt(context)
+                "content": system_prompt
             }
         ] + self.conversation_history[-3:]  # Solo ultimi 3 messaggi per evitare limite token
         
