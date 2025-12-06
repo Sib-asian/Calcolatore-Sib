@@ -56,7 +56,7 @@ class GoogleNewsRSS:
             return ('es', 'ES')
 
         # Premier League (Inghilterra)
-        elif any(x in team_lower for x in ['liverpool', 'manchester', 'chelsea', 'arsenal', 'tottenham', 'city', 'united']):
+        elif any(x in team_lower for x in ['liverpool', 'manchester', 'chelsea', 'arsenal', 'tottenham', 'city', 'united', 'aston villa', 'newcastle', 'brighton', 'west ham', 'everton', 'leicester', 'wolves', 'fulham', 'palace', 'brentford']):
             return ('en', 'GB')
 
         # Portugal
@@ -88,6 +88,41 @@ class GoogleNewsRSS:
             # Se traduzione fallisce, ritorna originale
             return text
 
+    def _is_relevant_to_team(self, article_title: str, team_name: str) -> bool:
+        """
+        Verifica se l'articolo è effettivamente rilevante per la squadra
+
+        Args:
+            article_title: Titolo dell'articolo (originale, non tradotto)
+            team_name: Nome della squadra
+
+        Returns:
+            True se l'articolo menziona la squadra, False altrimenti
+        """
+        if not article_title or not team_name:
+            return False
+
+        title_lower = article_title.lower()
+        team_lower = team_name.lower()
+
+        # Estrai parole chiave dal nome squadra
+        team_words = team_lower.split()
+
+        # Rimuovi parole comuni che non identificano la squadra
+        stop_words = {'fc', 'ac', 'cf', 'afc', 'bfc', 'united', 'city', 'sporting'}
+        team_keywords = [w for w in team_words if w not in stop_words and len(w) > 2]
+
+        # Se non ci sono keyword significative, usa tutto il nome
+        if not team_keywords:
+            team_keywords = team_words
+
+        # L'articolo deve contenere almeno UNA keyword significativa della squadra
+        for keyword in team_keywords:
+            if keyword in title_lower:
+                return True
+
+        return False
+
     def _rate_limit(self):
         """Rate limiting gentile"""
         current_time = time.time()
@@ -116,15 +151,19 @@ class GoogleNewsRSS:
         # Rileva lingua ottimale per la squadra
         lang_code, region_code = self._detect_team_language(team_name)
 
-        # Costruisci query
+        # Costruisci query - SEMPLIFICATA per ridurre rumore
         if keywords:
-            # Usa OR per keywords multiple
-            keywords_str = " OR ".join(keywords)
-            query = f"{team_name} ({keywords_str})"
+            # Prendi SOLO la prima keyword (più specifica) invece di OR multiple
+            # Questo riduce drasticamente i falsi positivi
+            primary_keyword = keywords[0] if keywords else ''
+            query = f'"{team_name}" {primary_keyword}'
         else:
             # Aggiungi contesto sport in base alla lingua
             sport_keyword = 'football' if lang_code == 'en' else 'calcio' if lang_code == 'it' else 'fußball' if lang_code == 'de' else 'football'
-            query = f"{team_name} {sport_keyword}"
+            query = f'"{team_name}" {sport_keyword}'
+
+        # Aggiungi filtro temporale: solo ultimi 7 giorni
+        query += " when:7d"
 
         # Costruisci URL con lingua/regione della squadra
         query_encoded = quote_plus(query)
@@ -141,7 +180,7 @@ class GoogleNewsRSS:
                 items = root.findall('.//item')
 
                 results = []
-                for item in items[:max_results]:
+                for item in items[:max_results * 2]:  # Fetch più articoli per compensare il filtraggio
                     try:
                         title_elem = item.find('title')
                         link_elem = item.find('link')
@@ -149,6 +188,10 @@ class GoogleNewsRSS:
                         desc_elem = item.find('description')
 
                         title_original = title_elem.text if title_elem is not None else ''
+
+                        # FILTRO RIGOROSO: verifica che l'articolo sia davvero sulla squadra
+                        if not self._is_relevant_to_team(title_original, team_name):
+                            continue  # Salta articoli non rilevanti
 
                         # Traduci titolo in italiano se richiesto
                         if translate and title_original:
@@ -168,6 +211,10 @@ class GoogleNewsRSS:
 
                         if article['title']:  # Solo se ha almeno un titolo
                             results.append(article)
+
+                        # Fermati quando hai abbastanza risultati rilevanti
+                        if len(results) >= max_results:
+                            break
                     except Exception as e:
                         # Salta articolo mal formattato
                         continue
@@ -182,25 +229,50 @@ class GoogleNewsRSS:
             return []
 
     def search_injuries(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca notizie su infortuni - ITALIANO"""
-        return self.search_team_news(
-            team_name,
-            keywords=['infortunati', 'infortunio', 'injury list', 'injured players'],
-            max_results=15
-        )
+        """Cerca notizie su infortuni - con keywords lingua-specifiche"""
+        lang_code, _ = self._detect_team_language(team_name)
+
+        # Keywords specifiche per lingua (riduce falsi positivi)
+        keywords_map = {
+            'en': ['injury', 'injured', 'fitness'],
+            'it': ['infortunio', 'infortunato'],
+            'de': ['verletzt', 'verletzung'],
+            'fr': ['blessé', 'blessure'],
+            'es': ['lesión', 'lesionado'],
+            'pt': ['lesão', 'lesionado']
+        }
+
+        keywords = keywords_map.get(lang_code, keywords_map['en'])
+        return self.search_team_news(team_name, keywords=keywords, max_results=15)
 
     def search_lineup(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca notizie su formazioni - ITALIANO"""
-        return self.search_team_news(
-            team_name,
-            keywords=['formazione probabile', 'formazione', 'lineup', 'starting XI', 'probabile formazione'],
-            max_results=15
-        )
+        """Cerca notizie su formazioni - con keywords lingua-specifiche"""
+        lang_code, _ = self._detect_team_language(team_name)
+
+        keywords_map = {
+            'en': ['lineup', 'team news', 'starting XI'],
+            'it': ['formazione', 'convocati'],
+            'de': ['aufstellung', 'startelf'],
+            'fr': ['composition', 'onze de départ'],
+            'es': ['alineación', 'once inicial'],
+            'pt': ['escalação', 'onze inicial']
+        }
+
+        keywords = keywords_map.get(lang_code, keywords_map['en'])
+        return self.search_team_news(team_name, keywords=keywords, max_results=15)
 
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca giocatori indisponibili - ITALIANO, solo GIOCATORI"""
-        return self.search_team_news(
-            team_name,
-            keywords=['squalificati giocatori', 'giocatori squalificati', 'sospesi giocatori', 'suspended players'],
-            max_results=15
-        )
+        """Cerca giocatori indisponibili - con keywords lingua-specifiche"""
+        lang_code, _ = self._detect_team_language(team_name)
+
+        keywords_map = {
+            'en': ['suspended', 'suspension'],
+            'it': ['squalificato', 'squalifica'],
+            'de': ['gesperrt', 'sperre'],
+            'fr': ['suspendu', 'suspension'],
+            'es': ['sancionado', 'suspendido'],
+            'pt': ['suspenso', 'suspensão']
+        }
+
+        keywords = keywords_map.get(lang_code, keywords_map['en'])
+        return self.search_team_news(team_name, keywords=keywords, max_results=15)
