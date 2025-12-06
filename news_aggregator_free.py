@@ -226,9 +226,10 @@ class NewsAggregatorFree:
         except Exception as e:
             print(f"DEBUG: Errore Google News RSS: {e}")
 
-        # PRIORITÀ 2: Prova NewsAPI solo se Google News non ha trovato abbastanza (fallback)
-        # Salta se abbiamo già abbastanza dati da Google News
-        if len(all_injuries) < 3:
+        # PRIORITÀ 2: Prova NewsAPI solo se Google News non ha trovato abbastanza articoli
+        # Controlla il numero di ARTICOLI, non di nomi estratti
+        injury_articles = [a for a in all_articles if a['type'] == 'injury']
+        if len(injury_articles) < 3:
             try:
                 print(f"DEBUG: Google News insufficiente, provo NewsAPI per {team_name}...")
                 newsapi_results = self._get_news_from_newsapi(team_name)
@@ -269,9 +270,11 @@ class NewsAggregatorFree:
             except Exception as e:
                 print(f"DEBUG: Errore NewsAPI: {e}")
         
-        # PRIORITÀ 3: Prova DuckDuckGo solo se abbiamo ancora pochi dati
-        # (di solito non serve se Google News funziona)
-        if len(all_injuries) < 2 and len(all_formations) < 1:
+        # PRIORITÀ 3: Prova DuckDuckGo solo se abbiamo ancora pochissimi articoli
+        # Controlla ARTICOLI non nomi estratti
+        injury_articles = [a for a in all_articles if a['type'] == 'injury']
+        lineup_articles_count = [a for a in all_articles if a['type'] == 'lineup']
+        if len(injury_articles) < 2 and len(lineup_articles_count) < 1:
             try:
                 print(f"DEBUG: NewsAPI insufficiente, provo DuckDuckGo per {team_name}...")
                 injuries_results = self.web_search.search_injuries(team_name)
