@@ -47,21 +47,13 @@ class GoogleNewsRSS:
         if keywords:
             # Usa OR per keywords multiple
             keywords_str = " OR ".join(keywords)
-            query = f"{team_name} football ({keywords_str})"
+            query = f"{team_name} ({keywords_str})"
         else:
-            query = f"{team_name} football"
+            query = f"{team_name} calcio"
 
-        # Parametri URL
-        params = {
-            'q': query,
-            'hl': 'en',  # Lingua inglese per più risultati
-            'gl': 'US',  # Regione USA
-            'ceid': 'US:en'
-        }
-
-        # Costruisci URL manualmente per evitare problemi encoding
+        # Costruisci URL con parametri italiani
         query_encoded = quote_plus(query)
-        url = f"{self.base_url}?q={query_encoded}&hl=en&gl=US&ceid=US:en"
+        url = f"{self.base_url}?q={query_encoded}&hl=it&gl=IT&ceid=IT:it"
 
         try:
             response = requests.get(url, timeout=15)
@@ -103,25 +95,25 @@ class GoogleNewsRSS:
             return []
 
     def search_injuries(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca notizie su infortuni"""
+        """Cerca notizie su infortuni - ITALIANO"""
         return self.search_team_news(
             team_name,
-            keywords=['injuries', 'injured', 'injury list', 'infortunio', 'infortunati'],
+            keywords=['infortunati', 'infortunio', 'injury list', 'injured players'],
             max_results=15
         )
 
     def search_lineup(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca notizie su formazioni"""
+        """Cerca notizie su formazioni - ITALIANO"""
         return self.search_team_news(
             team_name,
-            keywords=['lineup', 'starting XI', 'team news', 'formazione', 'probabile formazione'],
+            keywords=['formazione probabile', 'formazione', 'lineup', 'starting XI', 'probabile formazione'],
             max_results=15
         )
 
     def search_unavailable(self, team_name: str) -> List[Dict[str, Any]]:
-        """Cerca giocatori indisponibili (squalificati, sospesi)"""
+        """Cerca giocatori indisponibili - ITALIANO, solo GIOCATORI"""
         return self.search_team_news(
             team_name,
-            keywords=['suspended', 'banned', 'unavailable', 'squalificato', 'sospeso'],
+            keywords=['squalificati giocatori', 'giocatori squalificati', 'sospesi giocatori', 'suspended players'],
             max_results=15
         )
