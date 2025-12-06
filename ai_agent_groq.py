@@ -129,21 +129,28 @@ class AIAgentGroq:
                     "snippet": article.get("snippet", "")[:150] if article.get("snippet") else ""  # Max 150 caratteri
                 })
             
-            # Processa infortuni (può essere lista di dict o lista di stringhe)
+            # Processa infortuni - NUOVO FORMATO con titoli articoli
             injuries_truncated = []
             injuries_raw = news_data.get("injuries", [])
-            for injury in injuries_raw[:5]:  # Max 5 infortuni (aumentato)
+            for injury in injuries_raw[:8]:  # Max 8 articoli infortuni
                 if isinstance(injury, dict):
-                    # Nuovo formato: dict con 'player', 'status', 'context'
-                    player = injury.get('player', '')
-                    status = injury.get('status', 'unknown')
-                    if player and player.strip():  # Solo se player non è vuoto
+                    # Nuovo formato: dict con 'title' e 'link' (articoli Google News)
+                    title = injury.get('title', '')
+                    link = injury.get('link', '')
+                    if title and title.strip():
+                        injuries_truncated.append({
+                            "title": title[:120],  # Titolo articolo
+                            "link": link
+                        })
+                    # Fallback: vecchio formato con 'player'
+                    elif injury.get('player'):
+                        player = injury.get('player', '')
+                        status = injury.get('status', 'unknown')
                         injuries_truncated.append({
                             "player": player[:50],
-                            "status": status,
-                            "info": injury.get('context', '')[:100] if injury.get('context') else ""
+                            "status": status
                         })
-                elif injury:  # Se è una stringa non vuota
+                elif injury:  # Se è una stringa
                     injuries_truncated.append({
                         "title": str(injury)[:100]
                     })
@@ -154,37 +161,55 @@ class AIAgentGroq:
             # Giocatori menzionati (lista di stringhe)
             players_mentioned = news_data.get("players_mentioned", [])[:10]  # Max 10 giocatori
             
-            # Lineup (mantenuto per compatibilità)
+            # Lineup news - NUOVO FORMATO con titoli articoli
             lineup_truncated = []
-            for lineup in news_data.get("lineup", [])[:2]:  # Max 2 formazioni
-                lineup_truncated.append({
-                    "title": lineup.get("title", "")[:100] if isinstance(lineup, dict) else str(lineup)[:100]
-                })
+            lineup_news_raw = news_data.get("lineup_news", news_data.get("lineup", []))
+            for lineup in lineup_news_raw[:8]:  # Max 8 articoli formazioni
+                if isinstance(lineup, dict):
+                    title = lineup.get("title", "")
+                    link = lineup.get("link", "")
+                    if title:
+                        lineup_truncated.append({
+                            "title": title[:120],
+                            "link": link
+                        })
+                elif lineup:
+                    lineup_truncated.append({
+                        "title": str(lineup)[:100]
+                    })
             
             # Prepara messaggio FORMATTATO - SOLO info essenziali match-day
             formatted_output = []
             
-            # Infortuni
+            # Infortuni - mostra titoli articoli
             if injuries_truncated:
                 formatted_output.append(f"**Infortuni per {team_name}:**")
                 for injury in injuries_truncated:
                     if isinstance(injury, dict):
-                        player = injury.get('player', '')
-                        status = injury.get('status', '')
-                        if player:
+                        # Nuovo formato con titoli
+                        if injury.get('title'):
+                            formatted_output.append(f"- {injury['title']}")
+                        # Fallback vecchio formato con player
+                        elif injury.get('player'):
+                            player = injury.get('player', '')
+                            status = injury.get('status', '')
                             formatted_output.append(f"- {player} ({status})")
                     else:
                         formatted_output.append(f"- {injury}")
             
-            # Indisponibili (squalificati, sospesi)
+            # Indisponibili (squalificati, sospesi) - NUOVO FORMATO
             unavailable = news_data.get('unavailable', [])
             if unavailable:
                 formatted_output.append(f"\n**Indisponibili per {team_name}:**")
-                for unav in unavailable[:5]:  # Max 5
+                for unav in unavailable[:8]:  # Max 8 articoli
                     if isinstance(unav, dict):
-                        player = unav.get('player', '')
-                        status = unav.get('status', '')
-                        if player:
+                        # Nuovo formato con titoli articoli
+                        if unav.get('title'):
+                            formatted_output.append(f"- {unav['title'][:120]}")
+                        # Fallback vecchio formato con player
+                        elif unav.get('player'):
+                            player = unav.get('player', '')
+                            status = unav.get('status', '')
                             formatted_output.append(f"- {player} ({status})")
                     else:
                         formatted_output.append(f"- {unav}")
