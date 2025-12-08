@@ -18,13 +18,16 @@ for dir_path in [DATA_DIR, MODELS_DIR, CACHE_DIR, HISTORICAL_DIR]:
 # API Keys (da impostare in .env)
 FOOTBALL_DATA_API_KEY = os.getenv("FOOTBALL_DATA_API_KEY", "")
 RAPIDAPI_KEY = os.getenv("RAPIDAPI_KEY", "")
+API_FOOTBALL_KEY = os.getenv("API_FOOTBALL_KEY", "")
 
 # API Endpoints
 FOOTBALL_DATA_BASE = "https://api.football-data.org/v4"
 RAPIDAPI_FOOTBALL_BASE = "https://api-football-v1.p.rapidapi.com/v3"
+API_FOOTBALL_BASE = "https://v3.football.api-sports.io"
 
 # Rate limiting
 FOOTBALL_DATA_RATE_LIMIT = 10  # richieste per minuto
+API_FOOTBALL_RATE_LIMIT = 100  # richieste per giorno (piano free)
 CACHE_DURATION_HOURS = 6  # durata cache in ore
 
 # Leghe supportate (codici Football-Data.org)
