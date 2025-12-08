@@ -161,9 +161,89 @@ class APIFootballClient:
 
         return fixtures
 
+    def _normalize_team_name(self, name: str) -> str:
+        """Normalize team name for better matching"""
+        name = name.lower().strip()
+
+        # Common abbreviations
+        abbreviations = {
+            'atl': 'atletico',
+            'ath': 'athletic',
+            'fc': '',
+            'cf': '',
+            'sc': '',
+            'ac': '',
+            'as': '',
+            'ss': '',
+            'us': '',
+            'cd': '',
+            'ud': '',
+            'sd': '',
+            'rc': '',
+            'rcd': '',
+            'real': '',
+            'utd': 'united',
+            'city': '',
+            'town': '',
+            'wanderers': '',
+            'rovers': '',
+            'hotspur': '',
+            'inter': 'internazionale',
+            'juve': 'juventus',
+            'barca': 'barcelona',
+            'psg': 'paris saint germain',
+            'man': 'manchester',
+            'spurs': 'tottenham',
+        }
+
+        # Remove accents
+        import unicodedata
+        name = unicodedata.normalize('NFKD', name).encode('ASCII', 'ignore').decode('ASCII')
+
+        # Replace abbreviations
+        words = name.split()
+        normalized_words = []
+        for word in words:
+            if word in abbreviations:
+                if abbreviations[word]:  # Only add if not empty
+                    normalized_words.append(abbreviations[word])
+            else:
+                normalized_words.append(word)
+
+        return ' '.join(normalized_words)
+
+    def _calculate_match_score(self, search_name: str, api_name: str) -> float:
+        """Calculate how well two team names match"""
+        search_norm = self._normalize_team_name(search_name)
+        api_norm = self._normalize_team_name(api_name)
+
+        # Direct contains check
+        if search_norm in api_norm or api_norm in search_norm:
+            return 2.0
+
+        # Word-by-word matching
+        search_words = set(search_norm.split())
+        api_words = set(api_norm.split())
+
+        # Count matching words
+        common_words = search_words & api_words
+        if not common_words:
+            return 0.0
+
+        # Score based on how many words match
+        total_words = len(search_words | api_words)
+        match_ratio = len(common_words) / total_words
+
+        # Bonus for matching significant words (longer than 3 chars)
+        significant_matches = sum(1 for w in common_words if len(w) > 3)
+
+        return match_ratio + (significant_matches * 0.5)
+
     def find_fixture_by_teams(self, team_home: str, team_away: str) -> Optional[Dict]:
         """
         Find a specific live fixture by team names
+
+        Uses fuzzy matching to handle abbreviations and variations.
 
         Args:
             team_home: Home team name
@@ -177,35 +257,32 @@ class APIFootballClient:
         if not fixtures:
             return None
 
-        home_lower = team_home.lower()
-        away_lower = team_away.lower()
-
         best_match = None
         best_score = 0
 
         for fix in fixtures:
-            fix_home = fix.get("teams", {}).get("home", {}).get("name", "").lower()
-            fix_away = fix.get("teams", {}).get("away", {}).get("name", "").lower()
+            fix_home = fix.get("teams", {}).get("home", {}).get("name", "")
+            fix_away = fix.get("teams", {}).get("away", {}).get("name", "")
 
-            # Calculate match score
-            score = 0
-            if home_lower in fix_home or fix_home in home_lower:
-                score += 1
-            if away_lower in fix_away or fix_away in away_lower:
-                score += 1
+            # Calculate match score for both teams
+            home_score = self._calculate_match_score(team_home, fix_home)
+            away_score = self._calculate_match_score(team_away, fix_away)
 
-            # Exact match bonus
-            if home_lower == fix_home:
-                score += 2
-            if away_lower == fix_away:
-                score += 2
+            # Combined score (both teams should match somewhat)
+            if home_score > 0 and away_score > 0:
+                total_score = home_score + away_score
+            elif home_score > 1.5 or away_score > 1.5:
+                # One team matches very well
+                total_score = home_score + away_score
+            else:
+                total_score = 0
 
-            if score > best_score:
-                best_score = score
+            if total_score > best_score:
+                best_score = total_score
                 best_match = fix
 
-        # Require at least one team to match
-        if best_score >= 1:
+        # Require minimum score
+        if best_score >= 1.0:
             return best_match
 
         return None
