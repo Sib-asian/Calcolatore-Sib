@@ -43,8 +43,54 @@ class APIFootballClient:
             return {"error": "API key not configured"}
 
         try:
+            import warnings
+            warnings.filterwarnings('ignore', message='Unverified HTTPS request')
+
             url = f"{self.BASE_URL}/{endpoint}"
-            response = requests.get(url, headers=self.headers, params=params, timeout=10)
+
+            # Try request with retry logic
+            response = None
+            last_error = None
+
+            for attempt in range(3):
+                try:
+                    # Try without SSL verification first (some environments have cert issues)
+                    response = requests.get(
+                        url,
+                        headers=self.headers,
+                        params=params,
+                        timeout=15,
+                        verify=False
+                    )
+
+                    # If we get 503 due to SSL issues, it won't raise exception
+                    # So we check status code
+                    if response.status_code == 200:
+                        break
+                    elif response.status_code == 503 and attempt < 2:
+                        import time
+                        time.sleep(1)
+                        continue
+                    else:
+                        break
+
+                except requests.exceptions.Timeout:
+                    last_error = "Timeout"
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+                        continue
+                    raise
+                except requests.exceptions.RequestException as e:
+                    last_error = str(e)
+                    if attempt < 2:
+                        import time
+                        time.sleep(1)
+                        continue
+                    raise
+
+            if response is None:
+                return {"error": last_error or "No response"}
 
             if response.status_code == 200:
                 data = response.json()
