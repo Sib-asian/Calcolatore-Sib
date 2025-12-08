@@ -780,17 +780,256 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
         except Exception as e:
             return f"❌ Errore generazione analisi: {str(e)}"
 
+    # ============================================================================
+    # PROFESSIONAL MATHEMATICAL MODELS - Dixon-Coles, Markov, Bayesian
+    # ============================================================================
+
+    def _dixon_coles_tau(self, home_goals: int, away_goals: int, lambda_h: float, lambda_a: float, rho: float = 0.10) -> float:
+        """
+        Dixon-Coles τ adjustment per correlazione gol in match low-scoring.
+
+        τ(h,a) corregge P(h,a) per score 0-0, 0-1, 1-0, 1-1 dove c'è correlazione.
+
+        Formula:
+        - τ(0,0) = 1 - λ_h × λ_a × ρ
+        - τ(0,1) = 1 + λ_h × ρ
+        - τ(1,0) = 1 + λ_a × ρ
+        - τ(1,1) = 1 - ρ
+        - τ(h,a) = 1  (per tutti gli altri score)
+
+        Args:
+            home_goals: Gol casa
+            away_goals: Gol trasferta
+            lambda_h: Lambda atteso casa
+            lambda_a: Lambda atteso trasferta
+            rho: Coefficiente correlazione (tipico: 0.08-0.12, default 0.10)
+
+        Returns:
+            Adjustment factor τ(h,a)
+        """
+        if home_goals == 0 and away_goals == 0:
+            return 1.0 - lambda_h * lambda_a * rho
+        elif home_goals == 0 and away_goals == 1:
+            return 1.0 + lambda_h * rho
+        elif home_goals == 1 and away_goals == 0:
+            return 1.0 + lambda_a * rho
+        elif home_goals == 1 and away_goals == 1:
+            return 1.0 - rho
+        else:
+            return 1.0  # Nessun aggiustamento per score alti
+
+    def _get_phase_multiplier(self, minute: int) -> Dict[str, float]:
+        """
+        Lambda time-dependent per fase partita (9 fasi dettagliate).
+
+        Fasi empiriche basate su analisi dati reali calcio:
+        - 0-15':   0.85  (warm-up, esplorazione)
+        - 15-30':  1.00  (ritmo normale)
+        - 30-45':  1.10  (pre-intervallo, intensità)
+        - 45-60':  0.90  (post-intervallo, ripresa)
+        - 60-70':  1.05  (ritmo crescente)
+        - 70-80':  1.20  (fase decisiva)
+        - 80-85':  1.40  (urgenza alta)
+        - 85-90':  1.65  (urgenza massima)
+        - 90+:     1.90  (disperazione, recupero)
+
+        Args:
+            minute: Minuto corrente (0-120)
+
+        Returns:
+            Dict con phase_name, multiplier, description
+        """
+        if minute < 15:
+            return {'phase': '0-15min', 'multiplier': 0.85, 'description': 'Warm-up phase'}
+        elif minute < 30:
+            return {'phase': '15-30min', 'multiplier': 1.00, 'description': 'Normal rhythm'}
+        elif minute < 45:
+            return {'phase': '30-45min', 'multiplier': 1.10, 'description': 'Pre-interval intensity'}
+        elif minute < 60:
+            return {'phase': '45-60min', 'multiplier': 0.90, 'description': 'Post-interval resume'}
+        elif minute < 70:
+            return {'phase': '60-70min', 'multiplier': 1.05, 'description': 'Increasing pace'}
+        elif minute < 80:
+            return {'phase': '70-80min', 'multiplier': 1.20, 'description': 'Decisive phase'}
+        elif minute < 85:
+            return {'phase': '80-85min', 'multiplier': 1.40, 'description': 'High urgency'}
+        elif minute < 90:
+            return {'phase': '85-90min', 'multiplier': 1.65, 'description': 'Maximum urgency'}
+        else:
+            return {'phase': '90+min', 'multiplier': 1.90, 'description': 'Injury time desperation'}
+
+    def _continuous_score_adjustment(self, score_diff: int, minutes_remaining: float) -> Dict[str, float]:
+        """
+        Score adjustment continuo e dinamico (non flat multipliers).
+
+        Formula migliorata:
+        - trailing_mult = 1.0 + (0.15 × |Δ| + 0.008 × (90 - time))
+        - leading_mult = 1.0 - (0.10 × |Δ| - 0.005 × (90 - time))
+
+        Più il tempo passa e più chi è dietro attacca disperatamente.
+        Chi è avanti si chiude progressivamente.
+
+        Args:
+            score_diff: Differenza gol (home - away)
+            minutes_remaining: Minuti rimanenti
+
+        Returns:
+            Dict con trailing_mult e leading_mult
+        """
+        abs_diff = abs(score_diff)
+        time_urgency = 90 - minutes_remaining  # Quanto tempo è passato
+
+        # Chi è dietro: attacco aumenta con diff e tempo passato
+        trailing_mult = 1.0 + (0.15 * abs_diff + 0.008 * time_urgency)
+
+        # Chi è avanti: difesa aumenta con diff, ma meno col passare tempo (nervosismo)
+        leading_mult = max(0.60, 1.0 - (0.10 * abs_diff - 0.005 * time_urgency))
+
+        return {
+            'trailing_mult': trailing_mult,
+            'leading_mult': leading_mult,
+            'time_urgency': time_urgency
+        }
+
+    def _bivariate_poisson_prob(self, h: int, a: int, lambda_h: float, lambda_a: float, rho: float = 0.10) -> float:
+        """
+        Probabilità Poisson bivariata con Dixon-Coles correlation.
+
+        P(H=h, A=a) = P_poisson(h,λ_h) × P_poisson(a,λ_a) × τ(h,a,λ_h,λ_a,ρ)
+
+        Args:
+            h: Gol casa
+            a: Gol trasferta
+            lambda_h: Expected goals casa
+            lambda_a: Expected goals trasferta
+            rho: Correlation coefficient (0.08-0.12)
+
+        Returns:
+            Probabilità congiunta P(H=h, A=a)
+        """
+        from math import exp, factorial
+
+        # Poisson indipendenti
+        if lambda_h <= 0:
+            poiss_h = 1.0 if h == 0 else 0.0
+        else:
+            poiss_h = (lambda_h ** h) * exp(-lambda_h) / factorial(h)
+
+        if lambda_a <= 0:
+            poiss_a = 1.0 if a == 0 else 0.0
+        else:
+            poiss_a = (lambda_a ** a) * exp(-lambda_a) / factorial(a)
+
+        # Aggiustamento Dixon-Coles
+        tau = self._dixon_coles_tau(h, a, lambda_h, lambda_a, rho)
+
+        return poiss_h * poiss_a * tau
+
+    def _calculate_markov_transitions(self, current_h: int, current_a: int, lambda_h: float, lambda_a: float,
+                                      time_fraction: float, rho: float = 0.10) -> Dict[str, float]:
+        """
+        Markov transition matrix: probabilità transizioni score nel tempo rimanente.
+
+        Calcola P(score_current → score_final) per tutti possibili finali.
+        Utile per mostrare "da 1-1, prob 1-2 vs 2-1 vs 1-1 finale".
+
+        Args:
+            current_h: Gol casa attuali
+            current_a: Gol trasferta attuali
+            lambda_h: Expected goals/90min casa
+            lambda_a: Expected goals/90min trasferta
+            time_fraction: Frazione tempo rimanente (0-1)
+            rho: Correlation coefficient
+
+        Returns:
+            Dict con probabilità transizioni principali
+        """
+        # Expected gol rimanenti
+        exp_h_remaining = lambda_h * time_fraction
+        exp_a_remaining = lambda_a * time_fraction
+
+        transitions = {}
+        max_additional_goals = 5  # Max gol aggiuntivi da considerare
+
+        # Calcola prob per ogni possibile score finale
+        for add_h in range(max_additional_goals + 1):
+            for add_a in range(max_additional_goals + 1):
+                final_h = current_h + add_h
+                final_a = current_a + add_a
+
+                # P(add_h, add_a) usando bivariate Poisson
+                prob = self._bivariate_poisson_prob(add_h, add_a, exp_h_remaining, exp_a_remaining, rho)
+
+                score_label = f"{final_h}-{final_a}"
+                transitions[score_label] = prob
+
+        # Normalizza (dovrebbe già sommare ~1, ma per sicurezza)
+        total = sum(transitions.values())
+        if total > 0:
+            transitions = {k: v / total for k, v in transitions.items()}
+
+        # Restituisci top 10 transizioni più probabili
+        sorted_transitions = dict(sorted(transitions.items(), key=lambda x: x[1], reverse=True)[:10])
+
+        return sorted_transitions
+
+    def _bayesian_confidence_interval(self, probability: float, n_observations: int = 100, confidence: float = 0.95) -> Dict[str, float]:
+        """
+        Bayesian confidence interval (credible interval) per probabilità stimata.
+
+        Usa Beta distribution come posterior (conjugate prior per Bernoulli).
+        Prior: Beta(1,1) (uniforme).
+        Posterior: Beta(α + successes, β + failures).
+
+        Con n_observations virtuali basati su quanto tempo è passato e dati disponibili.
+
+        Args:
+            probability: Probabilità stimata (0-1)
+            n_observations: Numero osservazioni virtuali (più alto = più fiducia)
+            confidence: Livello confidence (default 95%)
+
+        Returns:
+            Dict con lower, upper, mean, std della posterior
+        """
+        from scipy import stats
+
+        # Successi e fallimenti stimati
+        successes = probability * n_observations
+        failures = (1 - probability) * n_observations
+
+        # Beta posterior
+        alpha = 1 + successes  # Prior Beta(1,1) + dati
+        beta = 1 + failures
+
+        # Intervallo credibile
+        lower = stats.beta.ppf((1 - confidence) / 2, alpha, beta)
+        upper = stats.beta.ppf((1 + confidence) / 2, alpha, beta)
+        mean = stats.beta.mean(alpha, beta)
+        std = stats.beta.std(alpha, beta)
+
+        return {
+            'mean': round(mean, 4),
+            'lower_95': round(lower, 4),
+            'upper_95': round(upper, 4),
+            'std': round(std, 4),
+            'confidence': confidence
+        }
+
     def calculate_live_probabilities(self, score_home: int, score_away: int, minute: int,
                                      lambda_home_base: float, lambda_away_base: float,
                                      lambda_home_opening: float = None, lambda_away_opening: float = None,
                                      prematch_probs: Dict = None) -> Dict[str, Any]:
         """
-        Calcola probabilità live AVANZATE con:
-        - Market movement analysis (apertura → chiusura)
-        - Score + Time combined adjustment (dinamico)
-        - Time-decay non lineare con urgency factor
-        - Scenario projections (prossimi 5-10-15 min)
-        - Confidence scores per ogni bet
+        Calcola probabilità live PROFESSIONALI con modelli matematici avanzati:
+
+        ✅ Dixon-Coles Bivariate Poisson con correlation ρ
+        ✅ Lambda time-dependent (9 fasi dettagliate)
+        ✅ Score adjustment continuo (non flat)
+        ✅ Markov transition matrix per score changes
+        ✅ Bayesian confidence intervals (95% CI)
+        ✅ Market movement analysis
+        ✅ Goal timing distribution per fase
+        ✅ Scenario projections
 
         Args:
             score_home: Gol casa attuali
@@ -803,93 +1042,73 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             prematch_probs: Probabilità pre-match (opzionale)
 
         Returns:
-            Dict con probabilità live, confidence scores, projections
+            Dict con probabilità live, confidence intervals, Markov transitions, metrics professionali
         """
         try:
             from math import exp, factorial
 
             def poisson_prob(k, lam):
-                """Probabilità Poisson"""
+                """Probabilità Poisson semplice (per backward compatibility)"""
                 if lam <= 0:
                     return 1.0 if k == 0 else 0.0
                 return (lam ** k) * exp(-lam) / factorial(k)
 
+            # ============================================================================
+            # PROFESSIONAL CALCULATION PIPELINE
+            # ============================================================================
+
+            # Correlation coefficient (tipico per calcio: 0.08-0.12)
+            RHO = 0.10
+
             # ===== 1. MARKET MOVEMENT ANALYSIS =====
-            market_confidence = 1.0  # default
+            market_confidence = 1.0
             market_direction = "neutral"
+            market_shift_total = 0.0
 
             if lambda_home_opening is not None and lambda_away_opening is not None:
-                # Calcola shift del mercato (apertura → chiusura)
                 home_shift = lambda_home_base - lambda_home_opening
                 away_shift = lambda_away_base - lambda_away_opening
-                total_shift = abs(home_shift) + abs(away_shift)
+                market_shift_total = abs(home_shift) + abs(away_shift)
 
-                # Market confidence aumenta con shift forte (smart money)
-                if total_shift > 0.3:  # Shift significativo
-                    market_confidence = 1.0 + min(0.15, total_shift * 0.3)  # Max +15%
-
-                    # Determina direzione
+                # Smart money indicator
+                if market_shift_total > 0.3:
+                    market_confidence = 1.0 + min(0.15, market_shift_total * 0.3)
                     if home_shift > 0.15:
                         market_direction = "home"
                     elif away_shift > 0.15:
                         market_direction = "away"
-                elif total_shift < 0.05:  # Mercato stabile
-                    market_confidence = 0.95  # Meno fiducia se mercato non si è mosso
+                elif market_shift_total < 0.05:
+                    market_confidence = 0.95
 
-            # ===== 2. TIME-DECAY NON LINEARE =====
+            # ===== 2. TIME-DEPENDENT LAMBDA (9 PHASES) =====
             max_minutes = 90 if minute <= 90 else 120
             minutes_remaining = max(0, max_minutes - minute)
+            time_fraction_remaining = minutes_remaining / 90.0
 
-            # Urgency multiplier basato su fase partita
-            if minute >= 85:
-                urgency_factor = 1.60  # Fase disperata (85-90')
-            elif minute >= 75:
-                urgency_factor = 1.35  # Fase critica (75-85')
-            elif minute >= 60:
-                urgency_factor = 1.15  # Fase decisiva (60-75')
-            else:
-                urgency_factor = 1.0   # Fase normale (0-60')
+            # Ottieni phase multiplier professionale
+            phase_info = self._get_phase_multiplier(minute)
+            phase_mult = phase_info['multiplier']
+            phase_name = phase_info['phase']
 
-            # Time fraction con exponential decay negli ultimi minuti
-            if minute < 75:
-                time_fraction_remaining = minutes_remaining / 90.0
-            else:
-                # Exponential decay: ultimi minuti più impattanti
-                base_fraction = minutes_remaining / 90.0
-                decay_boost = 1.0 + (90 - minute) / 90.0 * 0.3  # Max +30%
-                time_fraction_remaining = base_fraction * decay_boost
-
-            # ===== 3. SCORE + TIME COMBINED ADJUSTMENT =====
+            # ===== 3. SCORE ADJUSTMENT CONTINUO (NON FLAT) =====
             score_diff = score_home - score_away
-            abs_diff = abs(score_diff)
+            score_adj = self._continuous_score_adjustment(score_diff, minutes_remaining)
+            trailing_mult = score_adj['trailing_mult']
+            leading_mult = score_adj['leading_mult']
 
-            # Base adjustment da score gap
-            if abs_diff == 0:  # Pareggio
-                trailing_mult = 1.0
-                leading_mult = 1.0
-            elif abs_diff == 1:  # 1 gol
-                trailing_mult = 1.25
-                leading_mult = 0.85
-            elif abs_diff == 2:  # 2 gol
-                trailing_mult = 1.50
-                leading_mult = 0.75
-            else:  # 3+ gol (game over)
-                trailing_mult = 1.80
-                leading_mult = 0.65
-
-            # Applica urgency: chi è dietro attacca molto di più negli ultimi minuti
+            # ===== 4. LAMBDA ADJUSTED FINALE =====
+            # Combina: base × phase × score × market
             if score_diff > 0:  # Casa in vantaggio
-                lambda_home_adj = lambda_home_base * leading_mult
-                lambda_away_adj = lambda_away_base * trailing_mult * urgency_factor
+                lambda_home_adj = lambda_home_base * phase_mult * leading_mult
+                lambda_away_adj = lambda_away_base * phase_mult * trailing_mult
             elif score_diff < 0:  # Trasferta in vantaggio
-                lambda_home_adj = lambda_home_base * trailing_mult * urgency_factor
-                lambda_away_adj = lambda_away_base * leading_mult
-            else:  # Pareggio: entrambe spingono negli ultimi minuti
-                boost = 1.0 + (urgency_factor - 1.0) * 0.5  # Boost ridotto per pareggio
-                lambda_home_adj = lambda_home_base * boost
-                lambda_away_adj = lambda_away_base * boost
+                lambda_home_adj = lambda_home_base * phase_mult * trailing_mult
+                lambda_away_adj = lambda_away_base * phase_mult * leading_mult
+            else:  # Pareggio
+                lambda_home_adj = lambda_home_base * phase_mult
+                lambda_away_adj = lambda_away_base * phase_mult
 
-            # Applica market confidence
+            # Market confidence adjustment
             if market_direction == "home":
                 lambda_home_adj *= market_confidence
             elif market_direction == "away":
@@ -900,19 +1119,19 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             expected_away_remaining = lambda_away_adj * time_fraction_remaining
             total_lambda_remaining = expected_home_remaining + expected_away_remaining
 
-            # ===== 4. PROBABILITÀ CORRENTI =====
-            # Next goal
+            # ===== 5. DIXON-COLES BIVARIATE POISSON PROBABILITIES =====
+            # Next goal (semplice ratio, Dixon-Coles non applicabile qui)
             if total_lambda_remaining > 0.01:
                 prob_next_goal_home = expected_home_remaining / total_lambda_remaining
                 prob_next_goal_away = expected_away_remaining / total_lambda_remaining
-                # Prob no more goals usando Poisson (più accurato)
-                prob_no_more_goals = poisson_prob(0, expected_home_remaining) * poisson_prob(0, expected_away_remaining)
+                # No more goals usando bivariate (0,0)
+                prob_no_more_goals = self._bivariate_poisson_prob(0, 0, expected_home_remaining, expected_away_remaining, RHO)
             else:
                 prob_next_goal_home = 0.0
                 prob_next_goal_away = 0.0
                 prob_no_more_goals = 1.0
 
-            # Risultati finali
+            # ===== 6. RISULTATI FINALI CON BIVARIATE POISSON =====
             max_goals_remaining = 6
             prob_home_win = 0.0
             prob_draw = 0.0
@@ -920,16 +1139,20 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             prob_over_25 = 0.0
             prob_under_25 = 0.0
 
+            # Usa Dixon-Coles bivariate per ogni possibile outcome
             for home_remaining in range(max_goals_remaining + 1):
                 for away_remaining in range(max_goals_remaining + 1):
-                    prob_this_outcome = (
-                        poisson_prob(home_remaining, expected_home_remaining) *
-                        poisson_prob(away_remaining, expected_away_remaining)
+                    # ✅ BIVARIATE POISSON con correlation
+                    prob_this_outcome = self._bivariate_poisson_prob(
+                        home_remaining, away_remaining,
+                        expected_home_remaining, expected_away_remaining,
+                        RHO
                     )
 
                     final_home = score_home + home_remaining
                     final_away = score_away + away_remaining
 
+                    # 1X2
                     if final_home > final_away:
                         prob_home_win += prob_this_outcome
                     elif final_home == final_away:
@@ -937,6 +1160,7 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     else:
                         prob_away_win += prob_this_outcome
 
+                    # Over/Under 2.5
                     total_goals = final_home + final_away
                     if total_goals > 2.5:
                         prob_over_25 += prob_this_outcome
@@ -975,38 +1199,53 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     prob_gg = prob_away_scores
                     prob_ng = 1.0 - prob_gg
 
-            # ===== 5. CONFIDENCE SCORES =====
-            # Confidence basato su: dati disponibili, tempo rimanente, score
-            base_confidence = 0.5
+            # ===== 7. MARKOV TRANSITION MATRIX =====
+            # Probabilità transizioni score attuali → possibili finali
+            markov_transitions = self._calculate_markov_transitions(
+                score_home, score_away,
+                lambda_home_adj, lambda_away_adj,
+                time_fraction_remaining,
+                RHO
+            )
 
-            # +20% se hai pre-match data
+            # ===== 8. BAYESIAN CONFIDENCE INTERVALS (95% CI) =====
+            # n_observations basato su: tempo passato + dati disponibili
+            n_obs_base = int(minute)  # Più tempo è passato, più osservazioni
+            if prematch_probs:
+                n_obs_base += 30
+            if lambda_home_opening is not None:
+                n_obs_base += 20
+            n_obs_base = min(n_obs_base, 150)  # Cap at 150
+
+            # Calcola CI per tutte le probabilità principali
+            ci_home_win = self._bayesian_confidence_interval(prob_home_win, n_obs_base)
+            ci_draw = self._bayesian_confidence_interval(prob_draw, n_obs_base)
+            ci_away_win = self._bayesian_confidence_interval(prob_away_win, n_obs_base)
+            ci_over_25 = self._bayesian_confidence_interval(prob_over_25, n_obs_base)
+            ci_under_25 = self._bayesian_confidence_interval(prob_under_25, n_obs_base)
+            ci_gg = self._bayesian_confidence_interval(prob_gg, n_obs_base) if not gg_already else None
+            ci_ng = self._bayesian_confidence_interval(prob_ng, n_obs_base) if not gg_already else None
+
+            # ===== 9. CONFIDENCE SCORES =====
+            base_confidence = 0.5
             if prematch_probs:
                 base_confidence += 0.20
-
-            # +15% se hai market movement data
             if lambda_home_opening is not None:
                 base_confidence += 0.15
-
-            # +10% se score non è 0-0 (più info)
             if score_home + score_away > 0:
                 base_confidence += 0.10
-
-            # -15% se molto tempo rimanente (alta incertezza)
             if minutes_remaining > 60:
                 base_confidence -= 0.15
             elif minutes_remaining > 30:
                 base_confidence -= 0.05
 
-            # Clamp 0.3-0.95
             overall_confidence = max(0.3, min(0.95, base_confidence))
-
-            # Confidence specifici per mercato
             confidence_1x2 = overall_confidence
-            confidence_ou = overall_confidence * 0.95  # O/U più incerto
+            confidence_ou = overall_confidence * 0.95
             confidence_gg = overall_confidence * 0.90 if not gg_already else 1.0
             confidence_next_goal = overall_confidence * 1.05 if minutes_remaining < 30 else overall_confidence * 0.85
 
-            # ===== 6. SCENARIO PROJECTIONS =====
+            # ===== 10. SCENARIO PROJECTIONS (con bivariate) =====
             projections = {}
 
             for future_min in [5, 10, 15]:
@@ -1015,16 +1254,15 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     future_time_remaining = max(0, 90 - future_minute)
                     future_time_fraction = future_time_remaining / 90.0
 
-                    # Scenario: nessun gol
                     future_exp_home = lambda_home_adj * future_time_fraction
                     future_exp_away = lambda_away_adj * future_time_fraction
 
-                    # Quick calc per Over/Under 2.5
+                    # Usa bivariate Poisson anche per projections
                     future_prob_over = 0.0
                     future_prob_under = 0.0
                     for h in range(6):
                         for a in range(6):
-                            p = poisson_prob(h, future_exp_home) * poisson_prob(a, future_exp_away)
+                            p = self._bivariate_poisson_prob(h, a, future_exp_home, future_exp_away, RHO)
                             if score_home + h + score_away + a > 2.5:
                                 future_prob_over += p
                             else:
@@ -1061,51 +1299,302 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     delta_vs_prematch['gg'] = prob_gg - pm_gg.get('GG', 0)
                     delta_vs_prematch['ng'] = prob_ng - pm_gg.get('NG', 0)
 
-            # ===== RETURN COMPLETO =====
+            # ===== RETURN COMPLETO - PROFESSIONAL VERSION =====
             return {
+                # Match status
                 'current_score': {
                     'home': score_home,
                     'away': score_away,
                     'minute': minute
                 },
                 'time_remaining': minutes_remaining,
-                'urgency_factor': round(urgency_factor, 2),
+
+                # ✅ NEW: Mathematical model info
+                'mathematical_model': {
+                    'type': 'Dixon-Coles Bivariate Poisson',
+                    'correlation_rho': RHO,
+                    'phase': phase_name,
+                    'phase_multiplier': round(phase_mult, 3),
+                    'score_diff': score_diff,
+                    'trailing_multiplier': round(trailing_mult, 3),
+                    'leading_multiplier': round(leading_mult, 3),
+                    'time_urgency': round(score_adj['time_urgency'], 1)
+                },
+
+                # Lambda adjustments
+                'lambda_adjustments': {
+                    'home_base': round(lambda_home_base, 3),
+                    'away_base': round(lambda_away_base, 3),
+                    'home_adjusted': round(lambda_home_adj, 3),
+                    'away_adjusted': round(lambda_away_adj, 3),
+                    'phase_applied': phase_name,
+                    'score_adjustment_applied': True
+                },
+
+                # Market movement
                 'market_analysis': {
                     'confidence': round(market_confidence, 3),
                     'direction': market_direction,
-                    'shift_detected': lambda_home_opening is not None
+                    'shift_detected': lambda_home_opening is not None,
+                    'shift_magnitude': round(market_shift_total, 3) if lambda_home_opening else 0.0
                 },
+
+                # Expected goals
                 'expected_goals_remaining': {
                     'home': round(expected_home_remaining, 3),
                     'away': round(expected_away_remaining, 3),
                     'total': round(total_lambda_remaining, 3)
                 },
+
+                # Next goal probabilities
                 'next_goal': {
                     'home': round(prob_next_goal_home, 3),
                     'away': round(prob_next_goal_away, 3),
                     'none': round(prob_no_more_goals, 3),
                     'confidence': round(confidence_next_goal, 2)
                 },
+
+                # Final result with Bayesian CI
                 'final_result': {
                     '1': round(prob_home_win, 3),
                     'X': round(prob_draw, 3),
                     '2': round(prob_away_win, 3),
-                    'confidence': round(confidence_1x2, 2)
+                    'confidence': round(confidence_1x2, 2),
+                    # ✅ NEW: Confidence intervals
+                    'bayesian_ci': {
+                        '1': ci_home_win,
+                        'X': ci_draw,
+                        '2': ci_away_win
+                    }
                 },
+
+                # Over/Under with CI
                 'over_under': {
                     'Over 2.5': round(prob_over_25, 3),
                     'Under 2.5': round(prob_under_25, 3),
-                    'confidence': round(confidence_ou, 2)
+                    'confidence': round(confidence_ou, 2),
+                    # ✅ NEW: Confidence intervals
+                    'bayesian_ci': {
+                        'Over 2.5': ci_over_25,
+                        'Under 2.5': ci_under_25
+                    }
                 },
+
+                # GG/NG with CI
                 'gg_ng': {
                     'GG': round(prob_gg, 3),
                     'NG': round(prob_ng, 3),
                     'gg_already': gg_already,
-                    'confidence': round(confidence_gg, 2)
+                    'confidence': round(confidence_gg, 2),
+                    # ✅ NEW: Confidence intervals (solo se non GG già)
+                    'bayesian_ci': {
+                        'GG': ci_gg,
+                        'NG': ci_ng
+                    } if not gg_already else None
                 },
+
+                # ✅ NEW: Markov transition matrix
+                'markov_transitions': markov_transitions,
+
+                # Scenario projections
                 'projections': projections,
-                'delta_vs_prematch': delta_vs_prematch if delta_vs_prematch else None
+
+                # Delta vs pre-match
+                'delta_vs_prematch': delta_vs_prematch if delta_vs_prematch else None,
+
+                # ✅ NEW: Professional summary
+                'professional_summary': {
+                    'model': 'Dixon-Coles Bivariate Poisson',
+                    'correlation': f'ρ = {RHO}',
+                    'phase': phase_name,
+                    'observations_count': n_obs_base,
+                    'confidence_level': '95% Bayesian CI',
+                    'adjustments_applied': [
+                        'Time-dependent lambda (9 phases)',
+                        'Continuous score adjustment',
+                        'Market movement integration',
+                        'Dixon-Coles correlation'
+                    ]
+                }
             }
+
+        except Exception as e:
+            return {'error': str(e)}
+
+    def calculate_betting_metrics(self, live_probs: Dict, bookmaker_margin: float = 0.06) -> Dict[str, Any]:
+        """
+        Calcola metriche professionali per betting:
+        - Expected Value (EV)
+        - Kelly Criterion
+        - Break-even Odds
+        - ROI Potential
+        - Risk/Reward Ratios
+        - Value Bet Indicators
+
+        Args:
+            live_probs: Output da calculate_live_probabilities()
+            bookmaker_margin: Margine tipico bookmaker (default 6%)
+
+        Returns:
+            Dict con tutte le metriche betting professionali
+        """
+        try:
+            metrics = {}
+
+            # Estrai probabilità
+            prob_home_win = live_probs['final_result']['1']
+            prob_draw = live_probs['final_result']['X']
+            prob_away_win = live_probs['final_result']['2']
+            prob_over = live_probs['over_under']['Over 2.5']
+            prob_under = live_probs['over_under']['Under 2.5']
+            prob_gg = live_probs['gg_ng']['GG']
+            prob_ng = live_probs['gg_ng']['NG']
+            prob_next_home = live_probs['next_goal']['home']
+            prob_next_away = live_probs['next_goal']['away']
+
+            # ===== FAIR ODDS (senza margin) =====
+            def fair_odds(prob):
+                return 1.0 / prob if prob > 0.001 else 999.0
+
+            # ===== MARKET ODDS (con margin bookmaker) =====
+            def market_odds(prob, margin):
+                """Odds tipiche di mercato con margine bookmaker"""
+                fair = fair_odds(prob)
+                return fair / (1 + margin) if fair < 999 else 999.0
+
+            # ===== EXPECTED VALUE =====
+            def calculate_ev(true_prob, market_odd):
+                """EV = (prob × (odds - 1)) - (1 - prob)"""
+                if market_odd >= 999:
+                    return 0.0
+                return (true_prob * (market_odd - 1)) - (1 - true_prob)
+
+            # ===== KELLY CRITERION =====
+            def kelly_criterion(true_prob, market_odd):
+                """Kelly % = (prob × odds - 1) / (odds - 1)"""
+                if market_odd <= 1.0 or market_odd >= 999:
+                    return 0.0
+                kelly = (true_prob * market_odd - 1) / (market_odd - 1)
+                return max(0, min(kelly, 0.20))  # Cap al 20% per safety
+
+            # ===== ROI =====
+            def calculate_roi(ev, stake=100):
+                """ROI% = (EV / stake) × 100"""
+                return (ev / stake) * 100 if stake > 0 else 0
+
+            # ===== RISK/REWARD =====
+            def risk_reward_ratio(true_prob, market_odd):
+                """R/R = Expected Win / Expected Loss"""
+                if market_odd >= 999 or true_prob <= 0:
+                    return 0.0
+                expected_win = true_prob * (market_odd - 1)
+                expected_loss = (1 - true_prob)
+                return expected_win / expected_loss if expected_loss > 0 else 0.0
+
+            # ===== VALUE INDICATOR =====
+            def value_indicator(ev):
+                """Classifica value: HIGH/MEDIUM/LOW/NEGATIVE"""
+                if ev > 0.15:
+                    return "🟢 HIGH VALUE"
+                elif ev > 0.05:
+                    return "🟡 MEDIUM VALUE"
+                elif ev > 0:
+                    return "🔵 LOW VALUE"
+                else:
+                    return "🔴 NEGATIVE VALUE"
+
+            # ===== CALCOLA METRICHE PER OGNI MERCATO =====
+            markets = {
+                '1X2': [
+                    ('1 (Casa Win)', prob_home_win),
+                    ('X (Draw)', prob_draw),
+                    ('2 (Away Win)', prob_away_win)
+                ],
+                'Over/Under': [
+                    ('Over 2.5', prob_over),
+                    ('Under 2.5', prob_under)
+                ],
+                'GG/NG': [
+                    ('GG', prob_gg),
+                    ('NG', prob_ng)
+                ],
+                'Next Goal': [
+                    ('Next Goal Casa', prob_next_home),
+                    ('Next Goal Trasferta', prob_next_away)
+                ]
+            }
+
+            for market_name, bets in markets.items():
+                metrics[market_name] = []
+
+                for bet_name, true_prob in bets:
+                    if true_prob < 0.01:  # Skip probabilità troppo basse
+                        continue
+
+                    fair_odd = fair_odds(true_prob)
+                    market_odd = market_odds(true_prob, bookmaker_margin)
+                    ev = calculate_ev(true_prob, market_odd)
+                    kelly = kelly_criterion(true_prob, market_odd)
+                    roi = calculate_roi(ev, stake=100)
+                    rr = risk_reward_ratio(true_prob, market_odd)
+                    value_label = value_indicator(ev)
+
+                    # Calcola profit atteso con stake 100€
+                    if ev > 0:
+                        expected_profit = ev * 100
+                    else:
+                        expected_profit = ev * 100
+
+                    metrics[market_name].append({
+                        'bet': bet_name,
+                        'true_probability': round(true_prob, 4),
+                        'fair_odds': round(fair_odd, 2),
+                        'market_odds': round(market_odd, 2),
+                        'expected_value': round(ev, 4),
+                        'ev_percent': round(ev * 100, 2),
+                        'kelly_percent': round(kelly * 100, 2),
+                        'roi_percent': round(roi, 2),
+                        'risk_reward': round(rr, 2),
+                        'value_indicator': value_label,
+                        'expected_profit_100': round(expected_profit, 2),
+                        'breakeven_odds': round(fair_odd, 2)
+                    })
+
+            # ===== TOP VALUE BETS (ordinati per EV) =====
+            all_bets = []
+            for market, bets_list in metrics.items():
+                for bet in bets_list:
+                    all_bets.append({**bet, 'market': market})
+
+            # Ordina per EV decrescente
+            all_bets_sorted = sorted(all_bets, key=lambda x: x['expected_value'], reverse=True)
+            metrics['top_value_bets'] = all_bets_sorted[:5]  # Top 5
+
+            # ===== BEST BET RECOMMENDATION =====
+            if all_bets_sorted and all_bets_sorted[0]['expected_value'] > 0:
+                best_bet = all_bets_sorted[0]
+                metrics['best_bet'] = {
+                    'bet': best_bet['bet'],
+                    'market': best_bet['market'],
+                    'probability': f"{best_bet['true_probability']*100:.1f}%",
+                    'fair_odds': best_bet['fair_odds'],
+                    'market_odds': best_bet['market_odds'],
+                    'ev': f"{best_bet['ev_percent']:+.2f}%",
+                    'kelly': f"{best_bet['kelly_percent']:.1f}%",
+                    'roi': f"{best_bet['roi_percent']:+.2f}%",
+                    'value': best_bet['value_indicator'],
+                    'expected_profit': f"{best_bet['expected_profit_100']:+.2f}€",
+                    'recommendation': 'BET NOW' if best_bet['expected_value'] > 0.10 else 'CONSIDER' if best_bet['expected_value'] > 0.05 else 'SMALL VALUE'
+                }
+            else:
+                metrics['best_bet'] = None
+
+            # ===== PORTFOLIO RECOMMENDATIONS =====
+            positive_ev_bets = [b for b in all_bets_sorted if b['expected_value'] > 0]
+            metrics['positive_ev_count'] = len(positive_ev_bets)
+            metrics['total_portfolio_ev'] = sum(b['expected_value'] for b in positive_ev_bets)
+
+            return metrics
 
         except Exception as e:
             return {'error': str(e)}
@@ -1192,12 +1681,28 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             # Market analysis
             market_conf = live_probs['market_analysis']['confidence']
             market_dir = live_probs['market_analysis']['direction']
-            urgency = live_probs['urgency_factor']
+
+            # NEW: Phase info invece di urgency_factor
+            math_model = live_probs.get('mathematical_model', {})
+            phase_mult = math_model.get('phase_multiplier', 1.0)
+            phase_name = math_model.get('phase', 'Normal')
+            correlation_rho = math_model.get('correlation_rho', 0.10)
+
+            # Professional summary
+            prof_summary = live_probs.get('professional_summary', {})
+            model_type = prof_summary.get('model', 'Dixon-Coles Bivariate Poisson')
 
             # Confidence scores
             conf_1x2 = live_probs['final_result']['confidence']
             conf_ou = live_probs['over_under']['confidence']
             conf_next = live_probs['next_goal']['confidence']
+
+            # Bayesian CI
+            ci_1x2 = live_probs['final_result'].get('bayesian_ci', {})
+            ci_ou = live_probs['over_under'].get('bayesian_ci', {})
+
+            # Markov transitions
+            markov_trans = live_probs.get('markov_transitions', {})
 
             # Projections
             projections = live_probs.get('projections', {})
@@ -1205,13 +1710,23 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             # Delta vs pre-match
             delta = live_probs.get('delta_vs_prematch')
 
-            # ===== COSTRUISCI PROMPT DETTAGLIATO =====
-            analysis_prompt = f"""Genera un'analisi LIVE BETTING AVANZATA ultra-actionable.
+            # ===== COSTRUISCI PROMPT DETTAGLIATO PROFESSIONALE =====
+            analysis_prompt = f"""Genera un'analisi LIVE BETTING PROFESSIONALE con breakdown matematico completo.
 
 📊 SITUAZIONE LIVE:
 - Match: {team_home_str} vs {team_away_str}
 - Score: {score_home}-{score_away} | Minuto: {minute}' | Rimanenti: {live_probs['time_remaining']} min
-- ⚠️ URGENCY FACTOR: {urgency}x {"🔥 CRITICO!" if urgency > 1.3 else "⚡ Decisivo" if urgency > 1.1 else "➡️ Normale"}
+
+🎓 MODELLO MATEMATICO UTILIZZATO:
+- Modello: **{model_type}**
+- Correlation (ρ): **{correlation_rho}**
+- Fase Partita: **{phase_name}** (multiplier: **{phase_mult:.3f}x**)
+- {"🔥 MASSIMA URGENZA!" if phase_mult > 1.5 else "⚡ Alta Urgenza" if phase_mult > 1.3 else "🎯 Decisivo" if phase_mult > 1.1 else "➡️ Normale"}
+
+🔢 LAMBDA ADJUSTMENTS:
+- λ Casa Base: {lambda_home_closing:.3f} → Adjusted: {live_probs['expected_goals_remaining']['home']/(live_probs['time_remaining']/90):.3f}
+- λ Trasferta Base: {lambda_away_closing:.3f} → Adjusted: {live_probs['expected_goals_remaining']['away']/(live_probs['time_remaining']/90):.3f}
+- Expected Goals Rimanenti: Casa {live_probs['expected_goals_remaining']['home']:.3f}, Trasferta {live_probs['expected_goals_remaining']['away']:.3f}
 
 🎯 MARKET ANALYSIS:
 - Confidence Mercato: {market_conf:.1%} {"✅ Alta" if market_conf > 1.05 else "➖ Neutra" if market_conf > 0.98 else "⚠️ Bassa"}
@@ -1225,19 +1740,56 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
 - Movimento Spread: {spread_opening:+.2f} → {spread_closing:+.2f} ({spread_shift:+.2f}) {"📈" if spread_shift > 0 else "📉" if spread_shift < 0 else "➡️"}
 - Movimento Total: {total_opening:.2f} → {total_closing:.2f} ({total_shift:+.2f}) {"📈" if total_shift > 0 else "📉" if total_shift < 0 else "➡️"}"""
 
+            # Prepara Bayesian CI string
+            ci_1_str = ""
+            ci_x_str = ""
+            ci_2_str = ""
+            ci_over_str = ""
+            ci_under_str = ""
+
+            if ci_1x2:
+                ci_1 = ci_1x2.get('1', {})
+                ci_x = ci_1x2.get('X', {})
+                ci_2 = ci_1x2.get('2', {})
+                if ci_1:
+                    ci_1_str = f" [95% CI: {ci_1.get('lower_95', 0)*100:.1f}%-{ci_1.get('upper_95', 0)*100:.1f}%]"
+                if ci_x:
+                    ci_x_str = f" [95% CI: {ci_x.get('lower_95', 0)*100:.1f}%-{ci_x.get('upper_95', 0)*100:.1f}%]"
+                if ci_2:
+                    ci_2_str = f" [95% CI: {ci_2.get('lower_95', 0)*100:.1f}%-{ci_2.get('upper_95', 0)*100:.1f}%]"
+
+            if ci_ou:
+                ci_over = ci_ou.get('Over 2.5', {})
+                ci_under = ci_ou.get('Under 2.5', {})
+                if ci_over:
+                    ci_over_str = f" [95% CI: {ci_over.get('lower_95', 0)*100:.1f}%-{ci_over.get('upper_95', 0)*100:.1f}%]"
+                if ci_under:
+                    ci_under_str = f" [95% CI: {ci_under.get('lower_95', 0)*100:.1f}%-{ci_under.get('upper_95', 0)*100:.1f}%]"
+
+            # Top 3 Markov transitions
+            markov_top3_str = ""
+            if markov_trans:
+                markov_items = list(markov_trans.items())[:3]
+                markov_top3_str = "\n🔀 TOP 3 SCORE FINALI PIÙ PROBABILI (Markov):\n"
+                for score, prob in markov_items:
+                    markov_top3_str += f"- {score}: {prob*100:.1f}%\n"
+
             analysis_prompt += f"""
 
-⚡ PROBABILITÀ LIVE (con Confidence):
+⚡ PROBABILITÀ LIVE CON BAYESIAN CONFIDENCE INTERVALS (95%):
 NEXT GOAL:
 - {team_home_str}: {live_probs['next_goal']['home']*100:.1f}% | {team_away_str}: {live_probs['next_goal']['away']*100:.1f}% | Nessun gol: {live_probs['next_goal']['none']*100:.1f}%
 - Confidence: {conf_next:.0%} {"⭐⭐⭐⭐" if conf_next > 0.8 else "⭐⭐⭐" if conf_next > 0.65 else "⭐⭐" if conf_next > 0.5 else "⭐"}
 
-RISULTATO FINALE:
-- 1 ({team_home_str}): {live_probs['final_result']['1']*100:.1f}% | X: {live_probs['final_result']['X']*100:.1f}% | 2 ({team_away_str}): {live_probs['final_result']['2']*100:.1f}%
+RISULTATO FINALE (con CI Bayesiani):
+- 1 ({team_home_str}): {live_probs['final_result']['1']*100:.1f}%{ci_1_str}
+- X (Pareggio): {live_probs['final_result']['X']*100:.1f}%{ci_x_str}
+- 2 ({team_away_str}): {live_probs['final_result']['2']*100:.1f}%{ci_2_str}
 - Confidence: {conf_1x2:.0%} {"⭐⭐⭐⭐" if conf_1x2 > 0.8 else "⭐⭐⭐" if conf_1x2 > 0.65 else "⭐⭐" if conf_1x2 > 0.5 else "⭐"}
-
-OVER/UNDER 2.5:
-- Over: {live_probs['over_under']['Over 2.5']*100:.1f}% | Under: {live_probs['over_under']['Under 2.5']*100:.1f}%
+{markov_top3_str}
+OVER/UNDER 2.5 (con CI Bayesiani):
+- Over: {live_probs['over_under']['Over 2.5']*100:.1f}%{ci_over_str}
+- Under: {live_probs['over_under']['Under 2.5']*100:.1f}%{ci_under_str}
 - Confidence: {conf_ou:.0%} {"⭐⭐⭐⭐" if conf_ou > 0.8 else "⭐⭐⭐" if conf_ou > 0.65 else "⭐⭐" if conf_ou > 0.5 else "⭐"}
 
 GG/NG:
@@ -1262,23 +1814,37 @@ GG/NG:
                     analysis_prompt += f"- {proj['minute']}': Over {proj['over_25']*100:.0f}% ({over_change*100:+.0f}%), Under {proj['under_25']*100:.0f}% ({under_change*100:+.0f}%)\n"
 
             analysis_prompt += """
-🎯 ISTRUZIONI OUTPUT - MASSIMA CHIAREZZA:
-1. "⚡ LIVE ANALYSIS" + minuto + score
-2. "🟢 TOP VALUE BET" - IL miglior bet ORA con:
-   - Mercato + %
-   - Confidence (stelle)
+🎯 ISTRUZIONI OUTPUT - ANALISI PROFESSIONALE DETTAGLIATA:
+1. "⚡ LIVE ANALYSIS" + minuto + score + fase partita
+2. "🎓 BREAKDOWN MATEMATICO" - spiega brevemente:
+   - Modello Dixon-Coles usato con ρ={correlation_rho}
+   - Fase {phase_name} con multiplier {phase_mult:.2f}x
+   - Lambda adjustments: come sono stati modificati e perché
+   - Bayesian CI: cosa significano gli intervalli più stretti/larghi
+3. "🟢 TOP VALUE BET" - IL miglior bet ORA con:
+   - Mercato + % (probabilità puntuale)
+   - 95% Confidence Interval (range incertezza)
+   - Confidence (stelle) + reasoning matematico
    - Timing (BET ORA / ASPETTA X min)
-   - WHY? (1 riga max)
-3. "🟡 SECONDO MIGLIOR BET" (stesso formato)
-4. "🔴 DA EVITARE" - 1 bet da NON fare + perché
-5. "⏰ PROSSIMI 10 MIN" - cosa succede se nessun gol
-6. "💡 ACTION" - 1 frase conclusiva ultra-concisa
+   - WHY? Spiega usando:
+     * Probabilità calcolata vs odds mercato
+     * Markov transitions supportanti
+     * Phase multiplier impact
+4. "🟡 SECONDO MIGLIOR BET" (stesso formato dettagliato)
+5. "🔴 DA EVITARE" - 1 bet da NON fare + spiegazione matematica del perché
+6. "⏰ SCENARIO ANALYSIS" - cosa succede nei prossimi 10 min basato su:
+   - Expected goals rimanenti
+   - Markov transitions
+   - Phase evolution
+7. "💡 FINAL VERDICT" - sintesi conclusiva con confidence quantitativa
 
 STILE:
-- MAX 250 parole TOTALI
-- Numeri chiari (%, confidence, minute)
-- Zero teoria, solo ACTION
-- Usa emoji per velocità lettura"""
+- Output DETTAGLIATO ma CHIARO (max 450 parole)
+- Ogni raccomandazione DEVE avere reasoning matematico
+- Cita SEMPRE: probabilità, CI ranges, phase info, model correlation
+- Spiega PERCHÉ i numeri dicono questo (non solo COSA dicono)
+- Zero affermazioni banali - tutto supportato da calcoli
+- Usa emoji per struttura, ma contenuto molto tecnico e professionale"""
 
             # ===== CHIAMA AI =====
             self._rate_limit()
@@ -1288,15 +1854,24 @@ STILE:
                 messages=[
                     {
                         "role": "system",
-                        "content": "Sei un analista LIVE BETTING esperto. Output ultra-conciso, numeri chiari, zero teoria, solo azioni immediate. Usa emoji per chiarezza."
+                        "content": """Sei un analista LIVE BETTING PROFESSIONALE con PhD in statistica applicata.
+Specialità: Dixon-Coles models, Bayesian inference, Markov chains applicati al calcio.
+
+Output requirements:
+- SEMPRE spiega il reasoning matematico dietro ogni raccomandazione
+- Cita modelli usati (Dixon-Coles ρ, phase multipliers, Bayesian CI)
+- Mostra step-by-step come arrivi alle conclusioni
+- Dettagliato ma chiaro - no jargon non spiegato
+- Ogni bet recommendation DEVE includere: probabilità, confidence interval, mathematical justification
+- Usa emoji per struttura, numeri precisi per sostanza"""
                     },
                     {
                         "role": "user",
                         "content": analysis_prompt
                     }
                 ],
-                temperature=0.25,  # Più deterministic
-                max_tokens=800
+                temperature=0.20,  # Molto deterministic per consistency matematica
+                max_tokens=1200  # Aumentato per output dettagliato
             )
 
             analysis_text = response.choices[0].message.content

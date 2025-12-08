@@ -930,14 +930,18 @@ with main_tab2:
             col_status1, col_status2 = st.columns([2, 1])
 
             with col_status1:
-                urgency = live_probs.get('urgency_factor', 1.0)
-                urgency_label = "🔥 CRITICO!" if urgency > 1.3 else "⚡ Decisivo" if urgency > 1.1 else "➡️ Normale"
+                # NEW: usa phase info invece di urgency_factor
+                math_model = live_probs.get('mathematical_model', {})
+                phase_mult = math_model.get('phase_multiplier', 1.0)
+                phase_name = math_model.get('phase', 'Normal')
+
+                phase_label = "🔥 MASSIMA URGENZA!" if phase_mult > 1.5 else "⚡ Alta Urgenza" if phase_mult > 1.3 else "🎯 Decisivo" if phase_mult > 1.1 else "➡️ Normale"
 
                 st.info(f"""
-                **📊 SITUAZIONE LIVE**
+                **📊 SITUAZIONE LIVE** (Dixon-Coles Model)
                 - Score: **{live_probs['current_score']['home']}-{live_probs['current_score']['away']}** | Minuto: **{live_probs['current_score']['minute']}'**
                 - Tempo rimanente: **{live_probs['time_remaining']} minuti**
-                - Urgency: **{urgency}x** {urgency_label}
+                - Fase: **{phase_name}** | Moltiplicatore: **{phase_mult}x** {phase_label}
                 """)
 
             with col_status2:
@@ -962,9 +966,9 @@ with main_tab2:
             st.markdown("---")
 
             # ===== TABS PER DATI DETTAGLIATI =====
-            live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6 = st.tabs([
+            live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6, live_tab7 = st.tabs([
                 "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG",
-                "📈 Delta Pre-Match", "🔮 Proiezioni", "📊 Dettagli Tecnici"
+                "📈 Delta Pre-Match", "🔮 Proiezioni", "💰 Betting Metrics", "📊 Dettagli Tecnici"
             ])
 
             with live_tab1:
@@ -1183,26 +1187,304 @@ with main_tab2:
                     st.warning("⚠️ Nessuna proiezione disponibile (partita quasi finita)")
 
             with live_tab6:
-                st.subheader("📊 Dettagli Tecnici")
+                st.subheader("💰 Professional Betting Metrics")
+
+                # Calcola betting metrics
+                try:
+                    betting_metrics = ai_agent.calculate_betting_metrics(live_probs, bookmaker_margin=0.06)
+
+                    st.markdown("### 📊 Expected Value (EV) Analysis")
+
+                    st.info("""
+                    **💡 Come interpretare:**
+                    - **EV > 0**: Value bet (probabilità reale > odd bookmaker)
+                    - **EV < 0**: Negative value (evita)
+                    - **Kelly %**: Quanto % del bankroll puntare (già cappato al 20%)
+                    - **ROI %**: Ritorno atteso su investimento
+                    - **Risk/Reward**: Ratio profitto atteso / rischio
+                    """)
+
+                    # Top 5 Value Bets
+                    top_bets = betting_metrics.get('top_value_bets', [])
+                    best_bet = betting_metrics.get('best_bet')
+
+                    if best_bet:
+                        st.success(f"""
+                        **🎯 BEST BET:**
+                        **{best_bet['bet']}** - {best_bet['value_indicator']}
+                        - Expected Value: **{best_bet['ev_percent']:.2f}%**
+                        - Kelly Stake: **{best_bet['kelly_percent']:.2f}%** del bankroll
+                        - ROI Potenziale: **{best_bet['roi_percent']:.1f}%**
+                        - Risk/Reward: **{best_bet['risk_reward']:.2f}**
+                        - Fair Odds: **{best_bet['fair_odds']:.2f}** | Market Odds: **{best_bet['market_odds']:.2f}**
+                        """)
+
+                    if top_bets:
+                        st.markdown("### 🏆 Top 5 Value Bets")
+
+                        top_bets_data = []
+                        for i, bet in enumerate(top_bets[:5], 1):
+                            top_bets_data.append({
+                                'Rank': f"#{i}",
+                                'Bet': bet['bet'],
+                                'EV %': f"{bet['ev_percent']:.2f}%",
+                                'Kelly %': f"{bet['kelly_percent']:.2f}%",
+                                'ROI %': f"{bet['roi_percent']:.1f}%",
+                                'R/R': f"{bet['risk_reward']:.2f}",
+                                'Value': bet['value_indicator']
+                            })
+
+                        df_top_bets = pd.DataFrame(top_bets_data)
+                        st.dataframe(df_top_bets, use_container_width=True, hide_index=True)
+
+                    st.markdown("---")
+
+                    # Dettagli per mercato
+                    st.markdown("### 📋 Dettagli per Mercato")
+
+                    for market_name, market_bets in betting_metrics.get('markets', {}).items():
+                        with st.expander(f"**{market_name}**"):
+                            market_data = []
+                            for bet in market_bets:
+                                market_data.append({
+                                    'Bet': bet['bet'],
+                                    'Prob Reale': f"{bet['true_probability']*100:.1f}%",
+                                    'Fair Odds': f"{bet['fair_odds']:.2f}",
+                                    'Market Odds': f"{bet['market_odds']:.2f}",
+                                    'EV %': f"{bet['ev_percent']:.2f}%",
+                                    'Kelly %': f"{bet['kelly_percent']:.2f}%",
+                                    'ROI %': f"{bet['roi_percent']:.1f}%",
+                                    'Profit su €100': f"€{bet['expected_profit_100']:.2f}",
+                                    'Value': bet['value_indicator']
+                                })
+
+                            df_market = pd.DataFrame(market_data)
+                            st.dataframe(df_market, use_container_width=True, hide_index=True)
+
+                    # Grafico EV comparison
+                    st.markdown("### 📊 Expected Value Comparison")
+
+                    all_bets = []
+                    for market_bets in betting_metrics.get('markets', {}).values():
+                        all_bets.extend(market_bets)
+
+                    # Top 10 by EV
+                    top_ev_bets = sorted(all_bets, key=lambda x: x['ev_percent'], reverse=True)[:10]
+
+                    fig_ev = go.Figure(data=[go.Bar(
+                        x=[bet['bet'] for bet in top_ev_bets],
+                        y=[bet['ev_percent'] for bet in top_ev_bets],
+                        marker_color=['green' if bet['ev_percent'] > 0 else 'red' for bet in top_ev_bets],
+                        text=[f"{bet['ev_percent']:.2f}%" for bet in top_ev_bets],
+                        textposition='auto'
+                    )])
+                    fig_ev.update_layout(
+                        title="Top 10 Bets by Expected Value",
+                        xaxis_title="Bet",
+                        yaxis_title="Expected Value (%)",
+                        showlegend=False,
+                        xaxis_tickangle=-45
+                    )
+                    st.plotly_chart(fig_ev, use_container_width=True)
+
+                    # Kelly Criterion visualization
+                    st.markdown("### 🎲 Kelly Criterion Stake Sizing")
+
+                    kelly_data = []
+                    for bet in top_ev_bets[:5]:
+                        if bet['kelly_percent'] > 0:
+                            kelly_data.append({
+                                'Bet': bet['bet'],
+                                'Kelly %': bet['kelly_percent']
+                            })
+
+                    if kelly_data:
+                        fig_kelly = go.Figure(data=[go.Bar(
+                            x=[item['Bet'] for item in kelly_data],
+                            y=[item['Kelly %'] for item in kelly_data],
+                            marker_color='lightblue',
+                            text=[f"{item['Kelly %']:.2f}%" for item in kelly_data],
+                            textposition='auto'
+                        )])
+                        fig_kelly.update_layout(
+                            title="Recommended Stake Size (% of Bankroll)",
+                            xaxis_title="Bet",
+                            yaxis_title="Kelly %",
+                            showlegend=False,
+                            xaxis_tickangle=-45
+                        )
+                        st.plotly_chart(fig_kelly, use_container_width=True)
+
+                        st.warning("""
+                        **⚠️ Bankroll Management:**
+                        - Kelly % già cappato al 20% massimo per sicurezza
+                        - Considera di usare 1/2 Kelly o 1/4 Kelly per ridurre varianza
+                        - Non puntare mai più del 5% del bankroll su una singola bet
+                        """)
+
+                except Exception as e:
+                    st.error(f"❌ Errore calcolo betting metrics: {str(e)}")
+                    import traceback
+                    st.code(traceback.format_exc())
+
+            with live_tab7:
+                st.subheader("📊 Dettagli Tecnici & Analisi Professionale")
+
+                # ===== SEZIONE 1: MODELLO MATEMATICO =====
+                st.markdown("### 🎓 Modello Matematico Utilizzato")
+
+                math_model = live_probs.get('mathematical_model', {})
+                prof_summary = live_probs.get('professional_summary', {})
+
+                st.success(f"""
+                **{math_model.get('type', 'Dixon-Coles Bivariate Poisson')}**
+                - Correlazione ρ: **{math_model.get('correlation_rho', 0.10)}**
+                - Fase partita: **{math_model.get('phase', 'N/A')}**
+                - Phase multiplier: **{math_model.get('phase_multiplier', 1.0):.3f}x**
+                - Score diff: **{math_model.get('score_diff', 0)}**
+                - Trailing mult: **{math_model.get('trailing_multiplier', 1.0):.3f}** | Leading mult: **{math_model.get('leading_multiplier', 1.0):.3f}**
+                """)
+
+                adjustments_list = prof_summary.get('adjustments_applied', [])
+                if adjustments_list:
+                    st.markdown("**✅ Aggiustamenti Applicati:**")
+                    for adj in adjustments_list:
+                        st.markdown(f"- {adj}")
+
+                st.markdown("---")
+
+                # ===== SEZIONE 2: LAMBDA ADJUSTMENTS =====
+                st.markdown("### 🔢 Lambda Adjustments")
+
+                lambda_adj = live_probs.get('lambda_adjustments', {})
+
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**🏠 Casa:**")
+                    st.metric("λ Base", f"{lambda_adj.get('home_base', lambda_home_base):.3f}")
+                    st.metric("λ Adjusted", f"{lambda_adj.get('home_adjusted', 0):.3f}",
+                              delta=f"{lambda_adj.get('home_adjusted', 0) - lambda_adj.get('home_base', lambda_home_base):.3f}")
+
+                with col2:
+                    st.markdown("**✈️ Trasferta:**")
+                    st.metric("λ Base", f"{lambda_adj.get('away_base', lambda_away_base):.3f}")
+                    st.metric("λ Adjusted", f"{lambda_adj.get('away_adjusted', 0):.3f}",
+                              delta=f"{lambda_adj.get('away_adjusted', 0) - lambda_adj.get('away_base', lambda_away_base):.3f}")
 
                 expected_remaining = live_probs['expected_goals_remaining']
+                st.markdown("**Expected Goals Rimanenti:**")
+                st.info(f"Casa: **{expected_remaining['home']:.3f}** | Trasferta: **{expected_remaining['away']:.3f}** | Totale: **{expected_remaining['total']:.3f}**")
 
-                st.markdown("**Gol Attesi Rimanenti:**")
-                col1, col2, col3 = st.columns(3)
-                with col1:
-                    st.metric("Casa", f"{expected_remaining['home']:.3f}")
-                with col2:
-                    st.metric("Trasferta", f"{expected_remaining['away']:.3f}")
-                with col3:
-                    st.metric("Totale", f"{expected_remaining['total']:.3f}")
+                st.markdown("---")
 
-                # Mostra lambda base usati
-                st.markdown("**Lambda Base Utilizzati:**")
-                st.info(f"λ Casa = {lambda_home_base:.2f} | λ Trasferta = {lambda_away_base:.2f}")
+                # ===== SEZIONE 3: BAYESIAN CONFIDENCE INTERVALS (95% CI) =====
+                st.markdown("### 📈 Bayesian Confidence Intervals (95% CI)")
 
-                # Mostra adjustment factors
-                st.markdown("**Adjustment Factors:**")
-                st.info(f"Urgency Factor: {live_probs.get('urgency_factor', 1.0):.2f}x | Market Confidence: {market_analysis.get('confidence', 1.0):.2f}")
+                final_result = live_probs['final_result']
+                over_under = live_probs['over_under']
+
+                bayesian_ci_1x2 = final_result.get('bayesian_ci', {})
+                bayesian_ci_ou = over_under.get('bayesian_ci', {})
+
+                if bayesian_ci_1x2:
+                    st.markdown("**1X2 (Risultato Finale):**")
+
+                    ci_data = []
+                    for outcome, label in [('1', '1 (Casa)'), ('X', 'X (Pareggio)'), ('2', '2 (Trasferta)')]:
+                        ci = bayesian_ci_1x2.get(outcome, {})
+                        if ci:
+                            ci_data.append({
+                                'Outcome': label,
+                                'Probabilità': f"{final_result[outcome]*100:.1f}%",
+                                'CI Lower (95%)': f"{ci.get('lower_95', 0)*100:.1f}%",
+                                'CI Upper (95%)': f"{ci.get('upper_95', 0)*100:.1f}%",
+                                'Std Dev': f"{ci.get('std', 0)*100:.2f}%"
+                            })
+
+                    if ci_data:
+                        df_ci_1x2 = pd.DataFrame(ci_data)
+                        st.dataframe(df_ci_1x2, use_container_width=True, hide_index=True)
+
+                if bayesian_ci_ou:
+                    st.markdown("**Over/Under 2.5:**")
+
+                    ci_ou_data = []
+                    for outcome in ['Over 2.5', 'Under 2.5']:
+                        ci = bayesian_ci_ou.get(outcome, {})
+                        if ci:
+                            ci_ou_data.append({
+                                'Outcome': outcome,
+                                'Probabilità': f"{over_under[outcome]*100:.1f}%",
+                                'CI Lower (95%)': f"{ci.get('lower_95', 0)*100:.1f}%",
+                                'CI Upper (95%)': f"{ci.get('upper_95', 0)*100:.1f}%",
+                                'Std Dev': f"{ci.get('std', 0)*100:.2f}%"
+                            })
+
+                    if ci_ou_data:
+                        df_ci_ou = pd.DataFrame(ci_ou_data)
+                        st.dataframe(df_ci_ou, use_container_width=True, hide_index=True)
+
+                st.info(f"""
+                **💡 Interpretazione Confidence Intervals:**
+                - Il vero valore ha 95% probabilità di essere nell'intervallo [Lower, Upper]
+                - Intervalli stretti = alta certezza
+                - Intervalli larghi = alta incertezza
+                - N° osservazioni virtuali: **{prof_summary.get('observations_count', 'N/A')}**
+                """)
+
+                st.markdown("---")
+
+                # ===== SEZIONE 4: MARKOV TRANSITION MATRIX =====
+                st.markdown("### 🔀 Markov Transition Matrix (Score Probabilities)")
+
+                markov_transitions = live_probs.get('markov_transitions', {})
+
+                if markov_transitions:
+                    st.markdown(f"**Da score attuale ({live_probs['current_score']['home']}-{live_probs['current_score']['away']}) a possibili finali:**")
+
+                    markov_data = []
+                    for score, prob in list(markov_transitions.items())[:10]:  # Top 10
+                        markov_data.append({
+                            'Score Finale': score,
+                            'Probabilità': f"{prob*100:.2f}%",
+                            'Prob Raw': prob
+                        })
+
+                    df_markov = pd.DataFrame(markov_data)
+                    st.dataframe(df_markov[['Score Finale', 'Probabilità']], use_container_width=True, hide_index=True)
+
+                    # Grafico Markov
+                    fig_markov = go.Figure(data=[go.Bar(
+                        x=[item['Score Finale'] for item in markov_data],
+                        y=[item['Prob Raw']*100 for item in markov_data],
+                        marker_color='lightblue'
+                    )])
+                    fig_markov.update_layout(
+                        title="Top 10 Score Finali Più Probabili",
+                        xaxis_title="Score Finale",
+                        yaxis_title="Probabilità (%)",
+                        showlegend=False
+                    )
+                    st.plotly_chart(fig_markov, use_container_width=True)
+
+                    st.info("""
+                    **💡 Come usare Markov Transitions:**
+                    - Mostra la distribuzione completa degli score finali possibili
+                    - Utile per exact score betting
+                    - Tiene conto della correlazione Dixon-Coles
+                    """)
+
+                st.markdown("---")
+
+                # ===== SEZIONE 5: MARKET ANALYSIS =====
+                st.markdown("### 📊 Market Analysis")
+
+                market_analysis = live_probs.get('market_analysis', {})
+                st.metric("Market Confidence", f"{market_analysis.get('confidence', 1.0):.3f}")
+                st.metric("Market Direction", market_analysis.get('direction', 'neutral').upper())
+                st.metric("Shift Magnitude", f"{market_analysis.get('shift_magnitude', 0.0):.3f}")
+
+                st.markdown("---")
 
                 # JSON completo per debug
                 with st.expander("🔍 Dati Completi (JSON)"):
