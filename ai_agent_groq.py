@@ -534,7 +534,252 @@ FORMATO:
                 "tools_used": tools_used,
                 "error": error_msg
             }
-    
+
+    def _analyze_match_profile(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Analizza il profilo del match basandosi su probabilità e spread/total"""
+        current = results.get('Current', {})
+        movement = results.get('Movement', {})
+
+        # Estrai dati chiave
+        expected_goals = current.get('Expected_Goals', {})
+        lambda_home = expected_goals.get('Home', 0)
+        lambda_away = expected_goals.get('Away', 0)
+        total_goals = lambda_home + lambda_away
+
+        gg_ng = current.get('GG_NG', {})
+        over_under = current.get('Over_Under', {})
+        one_x_two = current.get('1X2', {})
+
+        # Determina profilo match
+        profile = "Bilanciato"
+        if total_goals < 2.3:
+            profile = "Difensivo"
+        elif total_goals > 3.0:
+            profile = "Offensivo"
+
+        # Determina se è one-sided o equilibrato
+        casa_prob = one_x_two.get('1', 0) * 100
+        draw_prob = one_x_two.get('X', 0) * 100
+        away_prob = one_x_two.get('2', 0) * 100
+
+        max_prob = max(casa_prob, draw_prob, away_prob)
+        if max_prob > 60:
+            balance = "Nettamente sbilanciato"
+        elif max_prob > 50:
+            balance = "Sbilanciato"
+        else:
+            balance = "Equilibrato"
+
+        return {
+            "profile": profile,
+            "balance": balance,
+            "total_expected_goals": round(total_goals, 2),
+            "home_expected": round(lambda_home, 2),
+            "away_expected": round(lambda_away, 2),
+            "gg_probability": round(gg_ng.get('GG', 0) * 100, 1),
+            "under_25_probability": round(over_under.get('Under 2.5', 0) * 100, 1)
+        }
+
+    def _calculate_confidence_scores(self, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Calcola confidence score per ogni mercato"""
+        current = results.get('Current', {})
+        movement = results.get('Movement', {})
+
+        one_x_two = current.get('1X2', {})
+        gg_ng = current.get('GG_NG', {})
+        over_under = current.get('Over_Under', {})
+
+        # Spread e total movement
+        spread_change = abs(movement.get('Spread_Change', 0))
+        total_change = abs(movement.get('Total_Change', 0))
+
+        confidence_scores = {}
+
+        # 1X2 confidence
+        casa_prob = one_x_two.get('1', 0) * 100
+        x_prob = one_x_two.get('X', 0) * 100
+        away_prob = one_x_two.get('2', 0) * 100
+        max_1x2 = max(casa_prob, x_prob, away_prob)
+
+        if max_1x2 > 55 and spread_change < 0.3:
+            confidence_scores['1X2'] = 'Alta'
+        elif max_1x2 > 45:
+            confidence_scores['1X2'] = 'Media'
+        else:
+            confidence_scores['1X2'] = 'Bassa'
+
+        # GG/NG confidence
+        gg_prob = gg_ng.get('GG', 0) * 100
+        ng_prob = gg_ng.get('NG', 0) * 100
+        max_gg = max(gg_prob, ng_prob)
+
+        if max_gg > 60:
+            confidence_scores['GG_NG'] = 'Alta'
+        elif max_gg > 52:
+            confidence_scores['GG_NG'] = 'Media'
+        else:
+            confidence_scores['GG_NG'] = 'Bassa'
+
+        # Over/Under confidence
+        over_25 = over_under.get('Over 2.5', 0) * 100
+        under_25 = over_under.get('Under 2.5', 0) * 100
+        max_ou = max(over_25, under_25)
+
+        if max_ou > 58 and total_change < 0.3:
+            confidence_scores['Over_Under'] = 'Alta'
+        elif max_ou > 50:
+            confidence_scores['Over_Under'] = 'Media'
+        else:
+            confidence_scores['Over_Under'] = 'Bassa'
+
+        return confidence_scores
+
+    def _identify_key_patterns(self, results: Dict[str, Any]) -> List[str]:
+        """Identifica pattern chiave nel match"""
+        current = results.get('Current', {})
+        patterns = []
+
+        expected_goals = current.get('Expected_Goals', {})
+        lambda_home = expected_goals.get('Home', 0)
+        lambda_away = expected_goals.get('Away', 0)
+
+        gg_ng = current.get('GG_NG', {})
+        one_x_two = current.get('1X2', {})
+        over_under = current.get('Over_Under', {})
+
+        # Pattern 1: Low-scoring home win
+        if lambda_home > lambda_away and lambda_home < 2.0 and over_under.get('Under 2.5', 0) > 0.55:
+            patterns.append("Possibile vittoria casa a pochi gol")
+
+        # Pattern 2: Defensive stability
+        if lambda_away < 0.8:
+            patterns.append(f"Trasferta debole in attacco (exp: {lambda_away:.1f} gol)")
+
+        if lambda_home < 0.8:
+            patterns.append(f"Casa debole in attacco (exp: {lambda_home:.1f} gol)")
+
+        # Pattern 3: High variance (close probabilities)
+        casa_prob = one_x_two.get('1', 0)
+        away_prob = one_x_two.get('2', 0)
+        if abs(casa_prob - away_prob) < 0.10:
+            patterns.append("Match molto equilibrato (alta varianza)")
+
+        # Pattern 4: One-sided match
+        if casa_prob > 0.60 or away_prob > 0.60:
+            patterns.append("Match a senso unico")
+
+        # Pattern 5: Both teams likely to score
+        if gg_ng.get('GG', 0) > 0.65:
+            patterns.append("Entrambe le squadre hanno buone probabilità di segnare")
+
+        return patterns
+
+    def generate_probability_analysis(self, results: Dict[str, Any],
+                                     team_home: str = None,
+                                     team_away: str = None,
+                                     spread_opening: float = None,
+                                     total_opening: float = None,
+                                     spread_current: float = None,
+                                     total_current: float = None) -> str:
+        """
+        Genera analisi completa delle probabilità usando AI
+
+        Args:
+            results: Risultati del calcolo probabilità
+            team_home: Nome squadra casa (opzionale)
+            team_away: Nome squadra trasferta (opzionale)
+            spread_opening: Spread apertura
+            total_opening: Total apertura
+            spread_current: Spread corrente
+            total_current: Total corrente
+
+        Returns:
+            Stringa con analisi formattata in markdown
+        """
+        try:
+            # Analizza dati
+            profile = self._analyze_match_profile(results)
+            confidence = self._calculate_confidence_scores(results)
+            patterns = self._identify_key_patterns(results)
+
+            current = results.get('Current', {})
+            movement = results.get('Movement', {})
+
+            # Costruisci prompt per AI
+            team_home_str = team_home if team_home else "Casa"
+            team_away_str = team_away if team_away else "Trasferta"
+
+            analysis_prompt = f"""Genera un'analisi professionale di questa partita basandoti SOLO sui dati numerici forniti.
+
+DATI MATCH:
+- {team_home_str} vs {team_away_str}
+- Spread: {spread_opening:.2f} → {spread_current:.2f} (movimento: {movement.get('Spread_Change', 0):.2f})
+- Total: {total_opening:.2f} → {total_current:.2f} (movimento: {movement.get('Total_Change', 0):.2f})
+
+PROFILO MATCH:
+- Tipo: {profile['profile']}
+- Equilibrio: {profile['balance']}
+- Expected Goals: {team_home_str} {profile['home_expected']}, {team_away_str} {profile['away_expected']}
+- GG probabilità: {profile['gg_probability']}%
+- Under 2.5 probabilità: {profile['under_25_probability']}%
+
+PROBABILITÀ CORRENTI (1X2):
+- {team_home_str}: {current['1X2'].get('1', 0)*100:.1f}%
+- X: {current['1X2'].get('X', 0)*100:.1f}%
+- {team_away_str}: {current['1X2'].get('2', 0)*100:.1f}%
+
+MERCATI PRINCIPALI:
+GG/NG:
+- GG: {current['GG_NG'].get('GG', 0)*100:.1f}%
+- NG: {current['GG_NG'].get('NG', 0)*100:.1f}%
+
+Over/Under 2.5:
+- Over: {current['Over_Under'].get('Over 2.5', 0)*100:.1f}%
+- Under: {current['Over_Under'].get('Under 2.5', 0)*100:.1f}%
+
+CONFIDENCE SCORE:
+- 1X2: {confidence['1X2']}
+- GG/NG: {confidence['GG_NG']}
+- Over/Under: {confidence['Over_Under']}
+
+PATTERN IDENTIFICATI:
+{chr(10).join('- ' + p for p in patterns) if patterns else '- Nessun pattern significativo'}
+
+ISTRUZIONI:
+1. Inizia con "📊 ANALISI PROBABILITÀ" come titolo
+2. Sezione "PROFILO MATCH": spiega il tipo di match (difensivo/offensivo/bilanciato)
+3. Sezione "MERCATI CONSIGLIATI": suggerisci i 2-3 mercati con confidence più alta, spiegando perché
+4. Sezione "DA EVITARE": indica mercati con bassa confidence
+5. Se c'è movimento linee significativo (>0.3), spiegane il significato
+
+FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 parole."""
+
+            # Chiama AI per generare analisi
+            self._rate_limit()
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Sei un analista di scommesse professionale. Analizza i dati numerici e genera insights chiari e actionable."
+                    },
+                    {
+                        "role": "user",
+                        "content": analysis_prompt
+                    }
+                ],
+                temperature=0.3,  # Bassa temperatura per risposte più consistenti
+                max_tokens=800
+            )
+
+            analysis_text = response.choices[0].message.content
+
+            return analysis_text
+
+        except Exception as e:
+            return f"❌ Errore generazione analisi: {str(e)}"
+
     def clear_history(self):
         """Pulisce la history della conversazione"""
         self.conversation_history = []

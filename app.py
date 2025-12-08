@@ -146,51 +146,32 @@ if st.sidebar.button("🔄 Analizza Partita", type="primary"):
                 'team_away': team_away
             }
             
-            # Chiamata automatica AI se squadre inserite
-            if ai_agent and (team_home or team_away):
-                with st.spinner("🤖 AI sta analizzando la partita..."):
+            # Analisi AI automatica delle probabilità (SEMPRE, anche senza nomi squadre)
+            if ai_agent:
+                with st.spinner("🤖 AI sta analizzando le probabilità..."):
                     try:
-                        # Prepara prompt per analisi automatica
-                        analysis_prompt = f"Recupera informazioni essenziali match-day per questa partita:\n\n"
-                        if team_home:
-                            analysis_prompt += f"Squadra Casa: {team_home}\n"
-                        if team_away:
-                            analysis_prompt += f"Squadra Trasferta: {team_away}\n"
-                        analysis_prompt += f"\nISTRUZIONI:\n"
-                        analysis_prompt += f"1. USA get_team_news per {team_home if team_home else 'squadra casa'}\n"
-                        if team_away:
-                            analysis_prompt += f"2. USA get_team_news per {team_away}\n"
-                        analysis_prompt += f"\nFORMATO RISPOSTA OBBBLIGATORIO:\n"
-                        analysis_prompt += f"## Informazioni Essenziali Match-Day\n"
-                        analysis_prompt += f"- Quando chiami get_team_news, il tool restituisce un campo 'formatted_text'\n"
-                        analysis_prompt += f"- DEVI COPIARE E INCOLLARE IL CAMPO 'formatted_text' DIRETTAMENTE NELLA TUA RISPOSTA\n"
-                        analysis_prompt += f"- NON riscrivere, NON riassumere, NON generalizzare: USA ESATTAMENTE il testo di 'formatted_text'\n"
-                        analysis_prompt += f"- Se 'formatted_text' contiene infortuni/indisponibili/formazioni, MOSTRALI TUTTI così come sono\n"
-                        analysis_prompt += f"- Se 'formatted_text' dice 'Nessuna informazione essenziale trovata', scrivi esattamente quello\n"
-                        analysis_prompt += f"- NON inventare informazioni!\n"
-                        analysis_prompt += f"\nREGOLE CRITICHE:\n"
-                        analysis_prompt += f"- MOSTRA SOLO infortuni, indisponibili e formazioni\n"
-                        analysis_prompt += f"- NON mostrare analisi numerica o raccomandazioni\n"
-                        analysis_prompt += f"- NON mostrare news generiche o giocatori chiave\n"
-                        analysis_prompt += f"- Se non ci sono informazioni essenziali, dillo chiaramente"
-                        
-                        ai_result = ai_agent.chat(analysis_prompt, context=st.session_state['ai_context'])
-                        response = ai_result.get('response', '')
-                        if response and len(response) > 10:
-                            st.session_state['ai_analysis'] = response
+                        # Genera analisi probabilità usando il nuovo metodo
+                        analysis = ai_agent.generate_probability_analysis(
+                            results=results,
+                            team_home=team_home if team_home else None,
+                            team_away=team_away if team_away else None,
+                            spread_opening=spread_opening,
+                            total_opening=total_opening,
+                            spread_current=spread_current,
+                            total_current=total_current
+                        )
+
+                        if analysis and len(analysis) > 10:
+                            st.session_state['ai_analysis'] = analysis
                         else:
-                            st.session_state['ai_analysis'] = f"⚠️ L'AI non ha generato una risposta valida. Risposta ricevuta: {response[:100] if response else 'vuota'}"
+                            st.session_state['ai_analysis'] = "⚠️ L'AI non ha generato un'analisi valida."
                     except Exception as e:
                         error_msg = str(e)
                         st.session_state['ai_analysis'] = f"⚠️ Errore durante analisi AI: {error_msg}"
-                        # Mostra anche errore in console per debug
-                        print(f"Errore AI analisi automatica: {error_msg}")
+                        print(f"Errore AI analisi: {error_msg}")
             else:
-                # Nessuna squadra inserita o AI non disponibile
-                if not (team_home or team_away):
-                    st.session_state['ai_analysis'] = None
-                elif not ai_agent:
-                    st.session_state['ai_analysis'] = "⚠️ AI Agent non disponibile. Verifica le API keys in config.py o .env"
+                # AI non disponibile
+                st.session_state['ai_analysis'] = "⚠️ AI Agent non disponibile. Verifica le API keys in config.py o .env"
 
 # Tabs principali
 main_tab1, main_tab2 = st.tabs(["📊 Calcolatore", "🤖 AI Assistant"])
