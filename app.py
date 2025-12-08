@@ -174,7 +174,7 @@ if st.sidebar.button("🔄 Analizza Partita", type="primary"):
                 st.session_state['ai_analysis'] = "⚠️ AI Agent non disponibile. Verifica le API keys in config.py o .env"
 
 # Tabs principali
-main_tab1, main_tab2 = st.tabs(["📊 Calcolatore", "🤖 AI Assistant"])
+main_tab1, main_tab2, main_tab3 = st.tabs(["📊 Pre-Match", "⚡ Live", "🤖 AI Assistant"])
 
 # Tab Calcolatore
 with main_tab1:
@@ -718,8 +718,326 @@ with main_tab1:
         **💡 Suggerimento**: Inserisci anche i nomi delle squadre per ottenere un'analisi AI automatica completa!
         """)
 
-# Tab AI Assistant
+# Tab Live Betting
 with main_tab2:
+    st.header("⚡ Live Betting Analyzer")
+    st.markdown("""
+    **Analizza partite in corso per identificare le migliori opportunità live!**
+
+    Inserisci il risultato attuale e il minutaggio. Opzionalmente puoi usare i dati del Pre-Match
+    o inserire manualmente spread/total per un'analisi più accurata.
+    """)
+
+    # Layout a due colonne: inputs a sinistra, risultati a destra
+    col_input, col_output = st.columns([1, 2])
+
+    with col_input:
+        st.subheader("📊 Dati Live")
+
+        # Score attuale
+        st.markdown("**Risultato Attuale:**")
+        col_home, col_away = st.columns(2)
+        with col_home:
+            live_score_home = st.number_input(
+                "Gol Casa",
+                min_value=0,
+                max_value=20,
+                value=0,
+                step=1,
+                key="live_score_home"
+            )
+        with col_away:
+            live_score_away = st.number_input(
+                "Gol Trasferta",
+                min_value=0,
+                max_value=20,
+                value=0,
+                step=1,
+                key="live_score_away"
+            )
+
+        # Minuto
+        live_minute = st.number_input(
+            "⏱️ Minuto",
+            min_value=0,
+            max_value=120,
+            value=45,
+            step=1,
+            help="0-90 per tempi regolamentari, 91-120 per supplementari",
+            key="live_minute"
+        )
+
+        st.markdown("---")
+
+        # Opzione: usa pre-match
+        use_prematch = st.checkbox(
+            "✅ Usa dati Pre-Match",
+            value=False,
+            help="Se hai già analizzato la partita in Pre-Match, usa quei dati"
+        )
+
+        # Lambda source
+        lambda_home_base = 1.5  # default
+        lambda_away_base = 1.5  # default
+        prematch_results = None
+
+        if use_prematch:
+            # Prova a usare dati pre-match
+            if st.session_state.get('results'):
+                prematch_results = st.session_state['results']
+                lambda_home_base = prematch_results['Current']['Expected_Goals']['Home']
+                lambda_away_base = prematch_results['Current']['Expected_Goals']['Away']
+
+                st.success(f"✅ Usando λ Pre-Match: Casa={lambda_home_base:.2f}, Trasferta={lambda_away_base:.2f}")
+
+                # Mostra anche spread/total pre-match se disponibili
+                if st.session_state.get('ai_context'):
+                    ctx = st.session_state['ai_context']
+                    st.info(f"""
+                    **Dati Pre-Match:**
+                    - Spread: {ctx.get('spread_current', 'N/A')}
+                    - Total: {ctx.get('total_current', 'N/A')}
+                    """)
+            else:
+                st.warning("⚠️ Nessun dato Pre-Match disponibile. Analizza prima una partita nel tab Pre-Match.")
+                use_prematch = False
+
+        if not use_prematch:
+            # Input manuali
+            st.markdown("**📈 Dati Spread/Total (Opzionale):**")
+            st.caption("Se non inserisci questi dati, userò valori generici")
+
+            col_open, col_close = st.columns(2)
+
+            with col_open:
+                st.markdown("*Apertura*")
+                live_spread_opening = st.number_input(
+                    "Spread Apertura",
+                    value=0.0,
+                    step=0.25,
+                    format="%.2f",
+                    key="live_spread_opening"
+                )
+                live_total_opening = st.number_input(
+                    "Total Apertura",
+                    value=0.0,
+                    min_value=0.0,
+                    step=0.25,
+                    format="%.2f",
+                    key="live_total_opening"
+                )
+
+            with col_close:
+                st.markdown("*Chiusura*")
+                live_spread_closing = st.number_input(
+                    "Spread Chiusura",
+                    value=0.0,
+                    step=0.25,
+                    format="%.2f",
+                    key="live_spread_closing"
+                )
+                live_total_closing = st.number_input(
+                    "Total Chiusura",
+                    value=0.0,
+                    min_value=0.0,
+                    step=0.25,
+                    format="%.2f",
+                    key="live_total_closing"
+                )
+
+            # Calcola lambda se spread/total sono forniti
+            if live_spread_closing != 0.0 and live_total_closing != 0.0:
+                lambda_home_base = (live_total_closing - live_spread_closing) * 0.5
+                lambda_away_base = (live_total_closing + live_spread_closing) * 0.5
+                st.info(f"✅ Calcolato λ da Spread/Total: Casa={lambda_home_base:.2f}, Trasferta={lambda_away_base:.2f}")
+            else:
+                st.warning("⚠️ Usando valori generici: λ Casa=1.5, λ Trasferta=1.5")
+
+        st.markdown("---")
+
+        # Squadre (opzionale)
+        live_team_home = st.text_input(
+            "Squadra Casa (opzionale)",
+            value=st.session_state.get('ai_context', {}).get('team_home', '') if use_prematch else '',
+            placeholder="Es: Inter",
+            key="live_team_home"
+        )
+        live_team_away = st.text_input(
+            "Squadra Trasferta (opzionale)",
+            value=st.session_state.get('ai_context', {}).get('team_away', '') if use_prematch else '',
+            placeholder="Es: Milan",
+            key="live_team_away"
+        )
+
+        # Bottone analisi
+        analyze_live = st.button("⚡ Analizza Live", type="primary", use_container_width=True)
+
+    with col_output:
+        if analyze_live:
+            if ai_agent is None:
+                st.error("⚠️ AI Agent non disponibile. Verifica le API keys in config.py")
+            else:
+                with st.spinner("🔄 Analisi live in corso..."):
+                    try:
+                        # Calcola probabilità live
+                        live_probs = ai_agent.calculate_live_probabilities(
+                            score_home=live_score_home,
+                            score_away=live_score_away,
+                            minute=live_minute,
+                            lambda_home_base=lambda_home_base,
+                            lambda_away_base=lambda_away_base
+                        )
+
+                        # Genera analisi AI
+                        live_analysis = ai_agent.generate_live_betting_analysis(
+                            score_home=live_score_home,
+                            score_away=live_score_away,
+                            minute=live_minute,
+                            team_home=live_team_home if live_team_home else None,
+                            team_away=live_team_away if live_team_away else None,
+                            spread_opening=st.session_state.get('ai_context', {}).get('spread_opening') if use_prematch else (live_spread_opening if not use_prematch and live_spread_opening != 0.0 else None),
+                            total_opening=st.session_state.get('ai_context', {}).get('total_opening') if use_prematch else (live_total_opening if not use_prematch and live_total_opening != 0.0 else None),
+                            spread_closing=st.session_state.get('ai_context', {}).get('spread_current') if use_prematch else (live_spread_closing if not use_prematch and live_spread_closing != 0.0 else None),
+                            total_closing=st.session_state.get('ai_context', {}).get('total_current') if use_prematch else (live_total_closing if not use_prematch and live_total_closing != 0.0 else None),
+                            prematch_results=prematch_results if use_prematch else None
+                        )
+
+                        # Salva in session state
+                        st.session_state['live_probs'] = live_probs
+                        st.session_state['live_analysis'] = live_analysis
+
+                    except Exception as e:
+                        st.error(f"❌ Errore durante l'analisi live: {str(e)}")
+                        import traceback
+                        st.code(traceback.format_exc())
+
+        # Mostra risultati se disponibili
+        if st.session_state.get('live_probs'):
+            live_probs = st.session_state['live_probs']
+
+            # Box situazione attuale
+            st.info(f"""
+            **📊 SITUAZIONE LIVE**
+            - Score: **{live_probs['current_score']['home']}-{live_probs['current_score']['away']}**
+            - Minuto: **{live_probs['current_score']['minute']}'**
+            - Tempo rimanente: **{live_probs['time_remaining']} minuti**
+            """)
+
+            # Analisi AI
+            if st.session_state.get('live_analysis'):
+                st.markdown("---")
+                st.markdown(st.session_state['live_analysis'])
+
+            st.markdown("---")
+
+            # Tabs per dati dettagliati
+            live_tab1, live_tab2, live_tab3, live_tab4 = st.tabs([
+                "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG", "📊 Dettagli Tecnici"
+            ])
+
+            with live_tab1:
+                st.subheader("🎯 Prossimo Gol")
+
+                next_goal = live_probs['next_goal']
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Casa", f"{next_goal['home']*100:.1f}%")
+                with col2:
+                    st.metric("Trasferta", f"{next_goal['away']*100:.1f}%")
+                with col3:
+                    st.metric("Nessun Gol", f"{next_goal['none']*100:.1f}%")
+
+                # Grafico
+                fig_next_goal = go.Figure(data=[go.Bar(
+                    x=['Casa', 'Trasferta', 'Nessun Gol'],
+                    y=[next_goal['home']*100, next_goal['away']*100, next_goal['none']*100],
+                    marker_color=['#1f77b4', '#2ca02c', '#ff7f0e']
+                )])
+                fig_next_goal.update_layout(
+                    title="Probabilità Prossimo Gol",
+                    yaxis_title="Probabilità (%)",
+                    showlegend=False
+                )
+                st.plotly_chart(fig_next_goal, use_container_width=True)
+
+            with live_tab2:
+                st.subheader("🏆 Risultato Finale Previsto")
+
+                final_result = live_probs['final_result']
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("1 (Casa)", f"{final_result['1']*100:.1f}%")
+                with col2:
+                    st.metric("X (Pareggio)", f"{final_result['X']*100:.1f}%")
+                with col3:
+                    st.metric("2 (Trasferta)", f"{final_result['2']*100:.1f}%")
+
+                # Grafico
+                fig_final = go.Figure(data=[go.Pie(
+                    labels=['1 (Casa)', 'X (Pareggio)', '2 (Trasferta)'],
+                    values=[final_result['1'], final_result['X'], final_result['2']],
+                    hole=0.3,
+                    marker_colors=['#1f77b4', '#ff7f0e', '#2ca02c']
+                )])
+                fig_final.update_layout(title="Probabilità Risultato Finale")
+                st.plotly_chart(fig_final, use_container_width=True)
+
+            with live_tab3:
+                st.subheader("⚽ Over/Under & GG/NG")
+
+                over_under = live_probs['over_under']
+                gg_ng = live_probs['gg_ng']
+
+                col1, col2 = st.columns(2)
+
+                with col1:
+                    st.markdown("**Over/Under 2.5**")
+                    st.metric("Over 2.5", f"{over_under['Over 2.5']*100:.1f}%")
+                    st.metric("Under 2.5", f"{over_under['Under 2.5']*100:.1f}%")
+
+                with col2:
+                    st.markdown("**Goal/No Goal**")
+                    st.metric("GG", f"{gg_ng['GG']*100:.1f}%")
+                    st.metric("NG", f"{gg_ng['NG']*100:.1f}%")
+
+                    if gg_ng['gg_already']:
+                        st.success("✅ Entrambe hanno già segnato!")
+
+            with live_tab4:
+                st.subheader("📊 Dettagli Tecnici")
+
+                expected_remaining = live_probs['expected_goals_remaining']
+
+                st.markdown("**Gol Attesi Rimanenti:**")
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Casa", f"{expected_remaining['home']:.2f}")
+                with col2:
+                    st.metric("Trasferta", f"{expected_remaining['away']:.2f}")
+                with col3:
+                    st.metric("Totale", f"{expected_remaining['total']:.2f}")
+
+                # Mostra lambda base usati
+                st.markdown("**Lambda Base Utilizzati:**")
+                st.info(f"λ Casa = {lambda_home_base:.2f} | λ Trasferta = {lambda_away_base:.2f}")
+
+                # JSON completo per debug
+                with st.expander("🔍 Dati Completi (JSON)"):
+                    st.json(live_probs)
+
+        else:
+            st.info("👈 Inserisci i dati live e clicca '⚡ Analizza Live' per iniziare")
+            st.markdown("""
+            **💡 Suggerimenti:**
+            - Se hai già analizzato la partita nel tab Pre-Match, attiva "Usa dati Pre-Match"
+            - Altrimenti, inserisci manualmente spread/total per maggiore accuratezza
+            - Puoi anche fare un'analisi rapida con solo score e minuto (valori generici)
+            """)
+
+# Tab AI Assistant
+with main_tab3:
     st.header("🤖 AI Assistant - Analisi Intelligente")
     st.markdown("""
     **Chiedi all'AI di analizzare partite, cercare news, spiegare calcoli e molto altro!**
