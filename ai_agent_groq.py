@@ -780,6 +780,310 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
         except Exception as e:
             return f"❌ Errore generazione analisi: {str(e)}"
 
+    def calculate_live_probabilities(self, score_home: int, score_away: int, minute: int,
+                                     lambda_home_base: float, lambda_away_base: float) -> Dict[str, Any]:
+        """
+        Calcola probabilità live basandosi su score attuale e tempo rimanente
+
+        Args:
+            score_home: Gol casa attuali
+            score_away: Gol trasferta attuali
+            minute: Minuto attuale (0-120)
+            lambda_home_base: Lambda casa base (pre-match)
+            lambda_away_base: Lambda trasferta base (pre-match)
+
+        Returns:
+            Dict con probabilità live aggiornate
+        """
+        try:
+            # Calcola tempo rimanente (assumendo 90 min regolari + eventuali supplementari)
+            max_minutes = 90 if minute <= 90 else 120
+            minutes_remaining = max(0, max_minutes - minute)
+            time_fraction_remaining = minutes_remaining / 90.0
+
+            # Score effect: squadra in svantaggio attacca di più
+            score_diff = score_home - score_away
+
+            # Lambda adjustment basato su score state
+            if score_diff > 0:  # Casa in vantaggio
+                lambda_home_adj = lambda_home_base * 0.85  # Casa più difensiva
+                lambda_away_adj = lambda_away_base * 1.25  # Trasferta più offensiva
+            elif score_diff < 0:  # Trasferta in vantaggio
+                lambda_home_adj = lambda_home_base * 1.25  # Casa più offensiva
+                lambda_away_adj = lambda_away_base * 0.85  # Trasferta più difensiva
+            else:  # Pareggio
+                lambda_home_adj = lambda_home_base * 1.0
+                lambda_away_adj = lambda_away_base * 1.0
+
+            # Expected goals rimanenti
+            expected_home_remaining = lambda_home_adj * time_fraction_remaining
+            expected_away_remaining = lambda_away_adj * time_fraction_remaining
+
+            # Probabilità prossimo gol (basata su ratio)
+            total_lambda_remaining = expected_home_remaining + expected_away_remaining
+
+            if total_lambda_remaining > 0.01:
+                prob_next_goal_home = expected_home_remaining / total_lambda_remaining
+                prob_next_goal_away = expected_away_remaining / total_lambda_remaining
+                prob_no_more_goals = max(0, min(1, 1.0 - total_lambda_remaining))
+            else:
+                prob_next_goal_home = 0.0
+                prob_next_goal_away = 0.0
+                prob_no_more_goals = 1.0
+
+            # Calcola probabilità risultati finali usando distribuzione Poisson
+            from math import exp, factorial
+
+            def poisson_prob(k, lam):
+                """Probabilità Poisson"""
+                if lam <= 0:
+                    return 1.0 if k == 0 else 0.0
+                return (lam ** k) * exp(-lam) / factorial(k)
+
+            # Calcola probabilità per possibili gol rimanenti (max 5 per squadra)
+            max_goals_remaining = 5
+            prob_home_win = 0.0
+            prob_draw = 0.0
+            prob_away_win = 0.0
+            prob_over_25 = 0.0
+            prob_under_25 = 0.0
+
+            for home_remaining in range(max_goals_remaining + 1):
+                for away_remaining in range(max_goals_remaining + 1):
+                    prob_this_outcome = (
+                        poisson_prob(home_remaining, expected_home_remaining) *
+                        poisson_prob(away_remaining, expected_away_remaining)
+                    )
+
+                    final_home = score_home + home_remaining
+                    final_away = score_away + away_remaining
+
+                    if final_home > final_away:
+                        prob_home_win += prob_this_outcome
+                    elif final_home == final_away:
+                        prob_draw += prob_this_outcome
+                    else:
+                        prob_away_win += prob_this_outcome
+
+                    total_goals = final_home + final_away
+                    if total_goals > 2.5:
+                        prob_over_25 += prob_this_outcome
+                    else:
+                        prob_under_25 += prob_this_outcome
+
+            # Normalizza
+            total_1x2 = prob_home_win + prob_draw + prob_away_win
+            if total_1x2 > 0:
+                prob_home_win /= total_1x2
+                prob_draw /= total_1x2
+                prob_away_win /= total_1x2
+
+            total_ou = prob_over_25 + prob_under_25
+            if total_ou > 0:
+                prob_over_25 /= total_ou
+                prob_under_25 /= total_ou
+
+            # GG già verificabile
+            gg_already = score_home > 0 and score_away > 0
+            if gg_already:
+                prob_gg = 1.0
+                prob_ng = 0.0
+            else:
+                # Se una squadra non ha segnato, calcola prob che segni
+                if score_home == 0 and score_away == 0:
+                    prob_home_scores = 1.0 - poisson_prob(0, expected_home_remaining)
+                    prob_away_scores = 1.0 - poisson_prob(0, expected_away_remaining)
+                    prob_gg = prob_home_scores * prob_away_scores
+                    prob_ng = 1.0 - prob_gg
+                elif score_home == 0:
+                    prob_home_scores = 1.0 - poisson_prob(0, expected_home_remaining)
+                    prob_gg = prob_home_scores
+                    prob_ng = 1.0 - prob_gg
+                else:  # score_away == 0
+                    prob_away_scores = 1.0 - poisson_prob(0, expected_away_remaining)
+                    prob_gg = prob_away_scores
+                    prob_ng = 1.0 - prob_gg
+
+            return {
+                'current_score': {
+                    'home': score_home,
+                    'away': score_away,
+                    'minute': minute
+                },
+                'time_remaining': minutes_remaining,
+                'expected_goals_remaining': {
+                    'home': round(expected_home_remaining, 2),
+                    'away': round(expected_away_remaining, 2),
+                    'total': round(total_lambda_remaining, 2)
+                },
+                'next_goal': {
+                    'home': round(prob_next_goal_home, 3),
+                    'away': round(prob_next_goal_away, 3),
+                    'none': round(prob_no_more_goals, 3)
+                },
+                'final_result': {
+                    '1': round(prob_home_win, 3),
+                    'X': round(prob_draw, 3),
+                    '2': round(prob_away_win, 3)
+                },
+                'over_under': {
+                    'Over 2.5': round(prob_over_25, 3),
+                    'Under 2.5': round(prob_under_25, 3)
+                },
+                'gg_ng': {
+                    'GG': round(prob_gg, 3),
+                    'NG': round(prob_ng, 3),
+                    'gg_already': gg_already
+                }
+            }
+
+        except Exception as e:
+            return {'error': str(e)}
+
+    def generate_live_betting_analysis(self,
+                                      score_home: int, score_away: int, minute: int,
+                                      team_home: str = None, team_away: str = None,
+                                      spread_opening: float = None, total_opening: float = None,
+                                      spread_closing: float = None, total_closing: float = None,
+                                      prematch_results: Dict = None) -> str:
+        """
+        Genera analisi completa per live betting
+
+        Args:
+            score_home: Gol casa
+            score_away: Gol trasferta
+            minute: Minuto attuale
+            team_home: Nome squadra casa (opzionale)
+            team_away: Nome squadra trasferta (opzionale)
+            spread_opening: Spread apertura (opzionale)
+            total_opening: Total apertura (opzionale)
+            spread_closing: Spread chiusura (opzionale)
+            total_closing: Total chiusura (opzionale)
+            prematch_results: Risultati analisi pre-match (opzionale)
+
+        Returns:
+            Analisi formattata in markdown
+        """
+        try:
+            # Determina lambda base
+            if prematch_results:
+                # Usa expected goals da pre-match
+                lambda_home_base = prematch_results['Current']['Expected_Goals']['Home']
+                lambda_away_base = prematch_results['Current']['Expected_Goals']['Away']
+            elif spread_closing is not None and total_closing is not None:
+                # Calcola da spread/total closing
+                lambda_home_base = (total_closing - spread_closing) * 0.5
+                lambda_away_base = (total_closing + spread_closing) * 0.5
+            else:
+                # Default generico
+                lambda_home_base = 1.5
+                lambda_away_base = 1.5
+
+            # Calcola probabilità live
+            live_probs = self.calculate_live_probabilities(
+                score_home, score_away, minute,
+                lambda_home_base, lambda_away_base
+            )
+
+            if 'error' in live_probs:
+                return f"❌ Errore calcolo live: {live_probs['error']}"
+
+            # Prepara dati per AI
+            team_home_str = team_home if team_home else "Casa"
+            team_away_str = team_away if team_away else "Trasferta"
+
+            # Costruisci prompt per AI
+            has_prematch = prematch_results is not None
+            has_spread_total = spread_closing is not None and total_closing is not None
+
+            analysis_prompt = f"""Genera un'analisi LIVE BETTING professionale per questa partita.
+
+SITUAZIONE LIVE:
+- Match: {team_home_str} vs {team_away_str}
+- Score ATTUALE: {score_home}-{score_away}
+- Minuto: {minute}' (tempo rimanente: {live_probs['time_remaining']} min)
+
+EXPECTED GOALS RIMANENTI:
+- {team_home_str}: {live_probs['expected_goals_remaining']['home']} gol
+- {team_away_str}: {live_probs['expected_goals_remaining']['away']} gol
+- Totale: {live_probs['expected_goals_remaining']['total']} gol
+
+NEXT GOAL PROBABILITY:
+- {team_home_str}: {live_probs['next_goal']['home']*100:.1f}%
+- {team_away_str}: {live_probs['next_goal']['away']*100:.1f}%
+- Nessun altro gol: {live_probs['next_goal']['none']*100:.1f}%
+
+PROBABILITÀ RISULTATO FINALE:
+- {team_home_str} vince: {live_probs['final_result']['1']*100:.1f}%
+- X (pareggio): {live_probs['final_result']['X']*100:.1f}%
+- {team_away_str} vince: {live_probs['final_result']['2']*100:.1f}%
+
+OVER/UNDER 2.5:
+- Over 2.5: {live_probs['over_under']['Over 2.5']*100:.1f}%
+- Under 2.5: {live_probs['over_under']['Under 2.5']*100:.1f}%
+
+GG/NG:
+- GG: {live_probs['gg_ng']['GG']*100:.1f}% {'(GIÀ ACCADUTO ✓)' if live_probs['gg_ng']['gg_already'] else ''}
+- NG: {live_probs['gg_ng']['NG']*100:.1f}%
+"""
+
+            # Aggiungi context pre-match se disponibile
+            if has_prematch:
+                prematch_1x2 = prematch_results['Current']['1X2']
+                analysis_prompt += f"""
+CONFRONTO PRE-MATCH vs LIVE:
+Pre-Match {team_home_str}: {prematch_1x2['1']*100:.1f}% → LIVE: {live_probs['final_result']['1']*100:.1f}%
+Pre-Match {team_away_str}: {prematch_1x2['2']*100:.1f}% → LIVE: {live_probs['final_result']['2']*100:.1f}%
+"""
+
+            if has_spread_total:
+                if spread_opening is not None:
+                    analysis_prompt += f"""
+MOVIMENTO LINEE:
+Spread: {spread_opening:.2f} → {spread_closing:.2f}
+Total: {total_opening:.2f} → {total_closing:.2f}
+"""
+
+            analysis_prompt += """
+ISTRUZIONI OUTPUT:
+1. Inizia con "⚡ LIVE BETTING ANALYSIS" + minuto + score
+2. Sezione "🎯 TOP 3 BET LIVE": suggerisci i 3 bet migliori ORA con emoji:
+   🟢 BET ORA (confidence alta, timing ottimo)
+   🟡 ASPETTA (migliore value più tardi, specifica quando)
+   🔴 EVITA (bassa probabilità o bad timing)
+3. Sezione "⏰ CRITICAL TIME WINDOWS": indica momenti decisivi
+4. Sezione "📈 NEXT GOAL IMPACT": spiega cosa succede se Casa/Trasferta segna
+5. Sezione "💡 RACCOMANDAZIONE PRINCIPALE": 1 consiglio actionable
+
+FORMATO: Markdown, emoji, conciso, MAX 350 parole.
+FOCUS: Decisioni IMMEDIATE per live betting, non teoria."""
+
+            # Chiama AI
+            self._rate_limit()
+
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "system",
+                        "content": "Sei un analista LIVE BETTING esperto. Fornisci consigli immediati e actionable per betting in-play."
+                    },
+                    {
+                        "role": "user",
+                        "content": analysis_prompt
+                    }
+                ],
+                temperature=0.3,
+                max_tokens=900
+            )
+
+            analysis_text = response.choices[0].message.content
+
+            return analysis_text
+
+        except Exception as e:
+            return f"❌ Errore generazione analisi live: {str(e)}"
+
     def clear_history(self):
         """Pulisce la history della conversazione"""
         self.conversation_history = []
