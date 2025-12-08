@@ -915,13 +915,44 @@ with main_tab2:
         if st.session_state.get('live_probs'):
             live_probs = st.session_state['live_probs']
 
-            # Box situazione attuale
-            st.info(f"""
-            **📊 SITUAZIONE LIVE**
-            - Score: **{live_probs['current_score']['home']}-{live_probs['current_score']['away']}**
-            - Minuto: **{live_probs['current_score']['minute']}'**
-            - Tempo rimanente: **{live_probs['time_remaining']} minuti**
-            """)
+            # Helper per confidence stars
+            def get_confidence_stars(conf):
+                if conf >= 0.80:
+                    return "⭐⭐⭐⭐"
+                elif conf >= 0.65:
+                    return "⭐⭐⭐"
+                elif conf >= 0.50:
+                    return "⭐⭐"
+                else:
+                    return "⭐"
+
+            # ===== BOX SITUAZIONE + MARKET ANALYSIS =====
+            col_status1, col_status2 = st.columns([2, 1])
+
+            with col_status1:
+                urgency = live_probs.get('urgency_factor', 1.0)
+                urgency_label = "🔥 CRITICO!" if urgency > 1.3 else "⚡ Decisivo" if urgency > 1.1 else "➡️ Normale"
+
+                st.info(f"""
+                **📊 SITUAZIONE LIVE**
+                - Score: **{live_probs['current_score']['home']}-{live_probs['current_score']['away']}** | Minuto: **{live_probs['current_score']['minute']}'**
+                - Tempo rimanente: **{live_probs['time_remaining']} minuti**
+                - Urgency: **{urgency}x** {urgency_label}
+                """)
+
+            with col_status2:
+                market_analysis = live_probs.get('market_analysis', {})
+                market_conf = market_analysis.get('confidence', 1.0)
+                market_dir = market_analysis.get('direction', 'neutral')
+
+                conf_label = "✅ Alta" if market_conf > 1.05 else "⚠️ Bassa" if market_conf < 0.98 else "➖ Neutra"
+                dir_label = "🏠 Casa" if market_dir == "home" else "✈️ Trasferta" if market_dir == "away" else "⚖️ Neutro"
+
+                st.success(f"""
+                **🎯 MARKET ANALYSIS**
+                - Confidence: **{market_conf:.2f}** {conf_label}
+                - Smart Money: {dir_label}
+                """)
 
             # Analisi AI
             if st.session_state.get('live_analysis'):
@@ -930,15 +961,20 @@ with main_tab2:
 
             st.markdown("---")
 
-            # Tabs per dati dettagliati
-            live_tab1, live_tab2, live_tab3, live_tab4 = st.tabs([
-                "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG", "📊 Dettagli Tecnici"
+            # ===== TABS PER DATI DETTAGLIATI =====
+            live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6 = st.tabs([
+                "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG",
+                "📈 Delta Pre-Match", "🔮 Proiezioni", "📊 Dettagli Tecnici"
             ])
 
             with live_tab1:
                 st.subheader("🎯 Prossimo Gol")
 
                 next_goal = live_probs['next_goal']
+                conf_next = next_goal.get('confidence', 0.5)
+                stars_next = get_confidence_stars(conf_next)
+
+                st.markdown(f"**Confidence: {conf_next:.0%} {stars_next}**")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -965,6 +1001,10 @@ with main_tab2:
                 st.subheader("🏆 Risultato Finale Previsto")
 
                 final_result = live_probs['final_result']
+                conf_1x2 = final_result.get('confidence', 0.5)
+                stars_1x2 = get_confidence_stars(conf_1x2)
+
+                st.markdown(f"**Confidence: {conf_1x2:.0%} {stars_1x2}**")
 
                 col1, col2, col3 = st.columns(3)
                 with col1:
@@ -989,16 +1029,18 @@ with main_tab2:
 
                 over_under = live_probs['over_under']
                 gg_ng = live_probs['gg_ng']
+                conf_ou = over_under.get('confidence', 0.5)
+                conf_gg = gg_ng.get('confidence', 0.5)
 
                 col1, col2 = st.columns(2)
 
                 with col1:
-                    st.markdown("**Over/Under 2.5**")
+                    st.markdown(f"**Over/Under 2.5** - Confidence: {conf_ou:.0%} {get_confidence_stars(conf_ou)}")
                     st.metric("Over 2.5", f"{over_under['Over 2.5']*100:.1f}%")
                     st.metric("Under 2.5", f"{over_under['Under 2.5']*100:.1f}%")
 
                 with col2:
-                    st.markdown("**Goal/No Goal**")
+                    st.markdown(f"**Goal/No Goal** - Confidence: {conf_gg:.0%} {get_confidence_stars(conf_gg)}")
                     st.metric("GG", f"{gg_ng['GG']*100:.1f}%")
                     st.metric("NG", f"{gg_ng['NG']*100:.1f}%")
 
@@ -1006,6 +1048,141 @@ with main_tab2:
                         st.success("✅ Entrambe hanno già segnato!")
 
             with live_tab4:
+                st.subheader("📈 Delta vs Pre-Match")
+
+                delta = live_probs.get('delta_vs_prematch')
+
+                if delta:
+                    # Crea tabella comparativa
+                    comparison_data = []
+
+                    if 'home_win' in delta:
+                        comparison_data.append({
+                            'Mercato': '1 (Casa Win)',
+                            'Pre-Match': f"{(live_probs['final_result']['1'] - delta['home_win'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['final_result']['1']*100:.1f}%",
+                            'Delta': f"{delta['home_win']*100:+.1f}%",
+                            'Trend': '📈' if delta['home_win'] > 0.05 else '📉' if delta['home_win'] < -0.05 else '➡️'
+                        })
+
+                    if 'away_win' in delta:
+                        comparison_data.append({
+                            'Mercato': '2 (Away Win)',
+                            'Pre-Match': f"{(live_probs['final_result']['2'] - delta['away_win'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['final_result']['2']*100:.1f}%",
+                            'Delta': f"{delta['away_win']*100:+.1f}%",
+                            'Trend': '📈' if delta['away_win'] > 0.05 else '📉' if delta['away_win'] < -0.05 else '➡️'
+                        })
+
+                    if 'draw' in delta:
+                        comparison_data.append({
+                            'Mercato': 'X (Pareggio)',
+                            'Pre-Match': f"{(live_probs['final_result']['X'] - delta['draw'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['final_result']['X']*100:.1f}%",
+                            'Delta': f"{delta['draw']*100:+.1f}%",
+                            'Trend': '📈' if delta['draw'] > 0.05 else '📉' if delta['draw'] < -0.05 else '➡️'
+                        })
+
+                    if 'over_25' in delta:
+                        comparison_data.append({
+                            'Mercato': 'Over 2.5',
+                            'Pre-Match': f"{(live_probs['over_under']['Over 2.5'] - delta['over_25'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['over_under']['Over 2.5']*100:.1f}%",
+                            'Delta': f"{delta['over_25']*100:+.1f}%",
+                            'Trend': '📈' if delta['over_25'] > 0.05 else '📉' if delta['over_25'] < -0.05 else '➡️'
+                        })
+
+                    if 'under_25' in delta:
+                        comparison_data.append({
+                            'Mercato': 'Under 2.5',
+                            'Pre-Match': f"{(live_probs['over_under']['Under 2.5'] - delta['under_25'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['over_under']['Under 2.5']*100:.1f}%",
+                            'Delta': f"{delta['under_25']*100:+.1f}%",
+                            'Trend': '📈' if delta['under_25'] > 0.05 else '📉' if delta['under_25'] < -0.05 else '➡️'
+                        })
+
+                    if 'gg' in delta:
+                        comparison_data.append({
+                            'Mercato': 'GG',
+                            'Pre-Match': f"{(live_probs['gg_ng']['GG'] - delta['gg'])*100:.1f}%",
+                            'Live NOW': f"{live_probs['gg_ng']['GG']*100:.1f}%",
+                            'Delta': f"{delta['gg']*100:+.1f}%",
+                            'Trend': '📈' if delta['gg'] > 0.05 else '📉' if delta['gg'] < -0.05 else '➡️'
+                        })
+
+                    df_comparison = pd.DataFrame(comparison_data)
+                    st.dataframe(df_comparison, use_container_width=True, hide_index=True)
+
+                    st.info("""
+                    **💡 Come leggere:**
+                    - 📈 = Probabilità SALITA rispetto al pre-match (>+5%)
+                    - 📉 = Probabilità SCESA rispetto al pre-match (<-5%)
+                    - ➡️ = Probabilità STABILE
+                    """)
+                else:
+                    st.warning("⚠️ Nessun dato Pre-Match disponibile per confronto")
+
+            with live_tab5:
+                st.subheader("🔮 Proiezioni Future")
+
+                projections = live_probs.get('projections', {})
+
+                if projections:
+                    st.markdown("**📊 Scenario: NESSUN GOL nei prossimi minuti**")
+
+                    proj_data = []
+                    for key, proj in projections.items():
+                        over_now = live_probs['over_under']['Over 2.5']
+                        under_now = live_probs['over_under']['Under 2.5']
+                        over_change = proj['over_25'] - over_now
+                        under_change = proj['under_25'] - under_now
+
+                        proj_data.append({
+                            'Minuto': f"{proj['minute']}'",
+                            'Over 2.5': f"{proj['over_25']*100:.1f}%",
+                            'Δ Over': f"{over_change*100:+.1f}%",
+                            'Under 2.5': f"{proj['under_25']*100:.1f}%",
+                            'Δ Under': f"{under_change*100:+.1f}%"
+                        })
+
+                    df_proj = pd.DataFrame(proj_data)
+                    st.dataframe(df_proj, use_container_width=True, hide_index=True)
+
+                    # Grafico trend
+                    minutes = [live_probs['current_score']['minute']] + [proj['minute'] for proj in projections.values()]
+                    over_values = [live_probs['over_under']['Over 2.5']*100] + [proj['over_25']*100 for proj in projections.values()]
+                    under_values = [live_probs['over_under']['Under 2.5']*100] + [proj['under_25']*100 for proj in projections.values()]
+
+                    fig_proj = go.Figure()
+                    fig_proj.add_trace(go.Scatter(
+                        x=minutes, y=over_values,
+                        mode='lines+markers',
+                        name='Over 2.5',
+                        line=dict(color='red', width=3)
+                    ))
+                    fig_proj.add_trace(go.Scatter(
+                        x=minutes, y=under_values,
+                        mode='lines+markers',
+                        name='Under 2.5',
+                        line=dict(color='blue', width=3)
+                    ))
+                    fig_proj.update_layout(
+                        title="Evoluzione Probabilità Over/Under 2.5",
+                        xaxis_title="Minuto",
+                        yaxis_title="Probabilità (%)",
+                        hovermode='x unified'
+                    )
+                    st.plotly_chart(fig_proj, use_container_width=True)
+
+                    st.info("""
+                    **💡 Come usarla:**
+                    - Se Under sta salendo → aspetta qualche minuto per bet Under (valore migliore)
+                    - Se Over sta scendendo → bet Over ORA prima che scenda ancora
+                    """)
+                else:
+                    st.warning("⚠️ Nessuna proiezione disponibile (partita quasi finita)")
+
+            with live_tab6:
                 st.subheader("📊 Dettagli Tecnici")
 
                 expected_remaining = live_probs['expected_goals_remaining']
@@ -1013,15 +1190,19 @@ with main_tab2:
                 st.markdown("**Gol Attesi Rimanenti:**")
                 col1, col2, col3 = st.columns(3)
                 with col1:
-                    st.metric("Casa", f"{expected_remaining['home']:.2f}")
+                    st.metric("Casa", f"{expected_remaining['home']:.3f}")
                 with col2:
-                    st.metric("Trasferta", f"{expected_remaining['away']:.2f}")
+                    st.metric("Trasferta", f"{expected_remaining['away']:.3f}")
                 with col3:
-                    st.metric("Totale", f"{expected_remaining['total']:.2f}")
+                    st.metric("Totale", f"{expected_remaining['total']:.3f}")
 
                 # Mostra lambda base usati
                 st.markdown("**Lambda Base Utilizzati:**")
                 st.info(f"λ Casa = {lambda_home_base:.2f} | λ Trasferta = {lambda_away_base:.2f}")
+
+                # Mostra adjustment factors
+                st.markdown("**Adjustment Factors:**")
+                st.info(f"Urgency Factor: {live_probs.get('urgency_factor', 1.0):.2f}x | Market Confidence: {market_analysis.get('confidence', 1.0):.2f}")
 
                 # JSON completo per debug
                 with st.expander("🔍 Dati Completi (JSON)"):
