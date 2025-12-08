@@ -1018,7 +1018,8 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
     def calculate_live_probabilities(self, score_home: int, score_away: int, minute: int,
                                      lambda_home_base: float, lambda_away_base: float,
                                      lambda_home_opening: float = None, lambda_away_opening: float = None,
-                                     prematch_probs: Dict = None) -> Dict[str, Any]:
+                                     prematch_probs: Dict = None,
+                                     live_stats: Dict = None) -> Dict[str, Any]:
         """
         Calcola probabilità live PROFESSIONALI con modelli matematici avanzati:
 
@@ -1030,6 +1031,7 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
         ✅ Market movement analysis
         ✅ Goal timing distribution per fase
         ✅ Scenario projections
+        ✅ Live stats integration (API-Football)
 
         Args:
             score_home: Gol casa attuali
@@ -1040,6 +1042,8 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             lambda_home_opening: Lambda casa apertura (opzionale)
             lambda_away_opening: Lambda trasferta apertura (opzionale)
             prematch_probs: Probabilità pre-match (opzionale)
+            live_stats: Statistiche live da API-Football (opzionale)
+                        Formato: {'normalized': {...}, 'stats_advantage': {...}}
 
         Returns:
             Dict con probabilità live, confidence intervals, Markov transitions, metrics professionali
@@ -1080,7 +1084,69 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                 elif market_shift_total < 0.05:
                     market_confidence = 0.95
 
-            # ===== 2. TIME-DEPENDENT LAMBDA (9 PHASES) =====
+            # ===== 2. LIVE STATS ADJUSTMENT (API-Football) =====
+            stats_multiplier_home = 1.0
+            stats_multiplier_away = 1.0
+            stats_analysis = None
+
+            if live_stats and live_stats.get('normalized'):
+                normalized = live_stats['normalized']
+
+                # Calculate advantage metrics
+                def safe_ratio(home_val, away_val) -> float:
+                    total = home_val + away_val
+                    if total == 0:
+                        return 0.5
+                    return home_val / total
+
+                # Core metrics from live stats
+                shots_on_target_home = normalized.get('shots_on_target_home', 0)
+                shots_on_target_away = normalized.get('shots_on_target_away', 0)
+                dangerous_attacks_home = normalized.get('dangerous_attacks_home', 0)
+                dangerous_attacks_away = normalized.get('dangerous_attacks_away', 0)
+                possession_home = normalized.get('possession_home', 50)
+                corners_home = normalized.get('corners_home', 0)
+                corners_away = normalized.get('corners_away', 0)
+
+                # Calculate ratios
+                shots_target_ratio = safe_ratio(shots_on_target_home, shots_on_target_away)
+                dangerous_ratio = safe_ratio(dangerous_attacks_home, dangerous_attacks_away)
+                possession_ratio = possession_home / 100.0
+                corners_ratio = safe_ratio(corners_home, corners_away)
+
+                # Combined advantage (weighted)
+                # Weights: shots on target 40%, dangerous attacks 30%, possession 15%, corners 15%
+                combined_advantage = (
+                    shots_target_ratio * 0.40 +
+                    dangerous_ratio * 0.30 +
+                    possession_ratio * 0.15 +
+                    corners_ratio * 0.15
+                )
+
+                # Calculate multipliers (max ±20% adjustment)
+                # combined_advantage: 0.5 = equal, >0.5 = home dominates, <0.5 = away dominates
+                adjustment_strength = 0.40  # Max 20% each way
+                stats_multiplier_home = 1.0 + (combined_advantage - 0.5) * adjustment_strength
+                stats_multiplier_away = 1.0 + (0.5 - combined_advantage) * adjustment_strength
+
+                # Clamp to reasonable range (0.80 - 1.20)
+                stats_multiplier_home = max(0.80, min(1.20, stats_multiplier_home))
+                stats_multiplier_away = max(0.80, min(1.20, stats_multiplier_away))
+
+                stats_analysis = {
+                    'shots_on_target_ratio': round(shots_target_ratio, 3),
+                    'dangerous_attacks_ratio': round(dangerous_ratio, 3),
+                    'possession_ratio': round(possession_ratio, 3),
+                    'corners_ratio': round(corners_ratio, 3),
+                    'combined_advantage': round(combined_advantage, 3),
+                    'home_multiplier': round(stats_multiplier_home, 3),
+                    'away_multiplier': round(stats_multiplier_away, 3),
+                    'home_dominance': combined_advantage > 0.55,
+                    'away_dominance': combined_advantage < 0.45,
+                    'balanced': 0.45 <= combined_advantage <= 0.55
+                }
+
+            # ===== 3. TIME-DEPENDENT LAMBDA (9 PHASES) =====
             max_minutes = 90 if minute <= 90 else 120
             minutes_remaining = max(0, max_minutes - minute)
             time_fraction_remaining = minutes_remaining / 90.0
@@ -1090,14 +1156,14 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             phase_mult = phase_info['multiplier']
             phase_name = phase_info['phase']
 
-            # ===== 3. SCORE ADJUSTMENT CONTINUO (NON FLAT) =====
+            # ===== 4. SCORE ADJUSTMENT CONTINUO (NON FLAT) =====
             score_diff = score_home - score_away
             score_adj = self._continuous_score_adjustment(score_diff, minutes_remaining)
             trailing_mult = score_adj['trailing_mult']
             leading_mult = score_adj['leading_mult']
 
-            # ===== 4. LAMBDA ADJUSTED FINALE =====
-            # Combina: base × phase × score × market
+            # ===== 5. LAMBDA ADJUSTED FINALE =====
+            # Combina: base × phase × score × market × stats
             if score_diff > 0:  # Casa in vantaggio
                 lambda_home_adj = lambda_home_base * phase_mult * leading_mult
                 lambda_away_adj = lambda_away_base * phase_mult * trailing_mult
@@ -1113,6 +1179,10 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                 lambda_home_adj *= market_confidence
             elif market_direction == "away":
                 lambda_away_adj *= market_confidence
+
+            # Live stats adjustment (from API-Football)
+            lambda_home_adj *= stats_multiplier_home
+            lambda_away_adj *= stats_multiplier_away
 
             # Expected goals rimanenti
             expected_home_remaining = lambda_home_adj * time_fraction_remaining
@@ -1208,13 +1278,15 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                 RHO
             )
 
-            # ===== 8. BAYESIAN CONFIDENCE INTERVALS (95% CI) =====
+            # ===== 9. BAYESIAN CONFIDENCE INTERVALS (95% CI) =====
             # n_observations basato su: tempo passato + dati disponibili
             n_obs_base = int(minute)  # Più tempo è passato, più osservazioni
             if prematch_probs:
                 n_obs_base += 30
             if lambda_home_opening is not None:
                 n_obs_base += 20
+            if live_stats and live_stats.get('normalized'):
+                n_obs_base += 25  # Live stats add more observations
             n_obs_base = min(n_obs_base, 150)  # Cap at 150
 
             # Calcola CI per tutte le probabilità principali
@@ -1226,12 +1298,14 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             ci_gg = self._bayesian_confidence_interval(prob_gg, n_obs_base) if not gg_already else None
             ci_ng = self._bayesian_confidence_interval(prob_ng, n_obs_base) if not gg_already else None
 
-            # ===== 9. CONFIDENCE SCORES =====
+            # ===== 10. CONFIDENCE SCORES =====
             base_confidence = 0.5
             if prematch_probs:
                 base_confidence += 0.20
             if lambda_home_opening is not None:
                 base_confidence += 0.15
+            if live_stats and live_stats.get('normalized'):
+                base_confidence += 0.15  # Live stats boost confidence
             if score_home + score_away > 0:
                 base_confidence += 0.10
             if minutes_remaining > 60:
@@ -1328,7 +1402,10 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     'home_adjusted': round(lambda_home_adj, 3),
                     'away_adjusted': round(lambda_away_adj, 3),
                     'phase_applied': phase_name,
-                    'score_adjustment_applied': True
+                    'score_adjustment_applied': True,
+                    'stats_multiplier_home': round(stats_multiplier_home, 3),
+                    'stats_multiplier_away': round(stats_multiplier_away, 3),
+                    'stats_adjustment_applied': stats_analysis is not None
                 },
 
                 # Market movement
@@ -1338,6 +1415,12 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     'shift_detected': lambda_home_opening is not None,
                     'shift_magnitude': round(market_shift_total, 3) if lambda_home_opening else 0.0
                 },
+
+                # Live stats analysis (API-Football)
+                'live_stats_analysis': stats_analysis if stats_analysis else None,
+
+                # Raw live stats (if available)
+                'live_stats_raw': live_stats.get('normalized') if live_stats else None,
 
                 # Expected goals
                 'expected_goals_remaining': {
@@ -1409,12 +1492,13 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     'phase': phase_name,
                     'observations_count': n_obs_base,
                     'confidence_level': '95% Bayesian CI',
+                    'live_stats_integrated': stats_analysis is not None,
                     'adjustments_applied': [
                         'Time-dependent lambda (9 phases)',
                         'Continuous score adjustment',
                         'Market movement integration',
                         'Dixon-Coles correlation'
-                    ]
+                    ] + (['Live stats adjustment (API-Football)'] if stats_analysis else [])
                 }
             }
 
