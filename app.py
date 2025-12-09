@@ -988,9 +988,9 @@ with main_tab2:
                 st.markdown("---")
 
                 # ===== TABS PER DATI DETTAGLIATI =====
-                live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6, live_tab7 = st.tabs([
+                live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6, live_tab7, live_tab8, live_tab9 = st.tabs([
                     "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG",
-                    "📈 Delta Pre-Match", "🔮 Proiezioni", "💰 Betting Metrics", "📊 Dettagli Tecnici"
+                    "🎲 Handicap", "🎯 Risultati Esatti", "📈 Delta Pre-Match", "🔮 Proiezioni", "💰 Betting Metrics", "📊 Dettagli Tecnici"
                 ])
 
                 with live_tab1:
@@ -1058,22 +1058,142 @@ with main_tab2:
                     conf_ou = over_under.get('confidence', 0.5)
                     conf_gg = gg_ng.get('confidence', 0.5)
 
+                    # ===== TUTTI GLI O/U =====
+                    st.markdown(f"### 📊 Over/Under - Confidence: {conf_ou:.0%} {get_confidence_stars(conf_ou)}")
+
+                    ou_data = []
+                    for level in ['0.5', '1.5', '2.5', '3.5', '4.5', '5.5']:
+                        over_key = f'Over {level}'
+                        under_key = f'Under {level}'
+                        over_val = over_under.get(over_key, 0)
+                        under_val = over_under.get(under_key, 0)
+                        ou_data.append({
+                            'Mercato': level,
+                            'Over': f"{over_val*100:.1f}%",
+                            'Under': f"{under_val*100:.1f}%",
+                            'Suggerimento': '✅ OVER' if over_val > 0.60 else '✅ UNDER' if under_val > 0.60 else '⚖️'
+                        })
+
+                    df_ou = pd.DataFrame(ou_data)
+                    st.dataframe(df_ou, use_container_width=True, hide_index=True)
+
+                    # Grafico O/U
+                    fig_ou = go.Figure()
+                    fig_ou.add_trace(go.Bar(
+                        x=['0.5', '1.5', '2.5', '3.5', '4.5', '5.5'],
+                        y=[over_under.get(f'Over {l}', 0)*100 for l in ['0.5', '1.5', '2.5', '3.5', '4.5', '5.5']],
+                        name='Over',
+                        marker_color='#e74c3c'
+                    ))
+                    fig_ou.add_trace(go.Bar(
+                        x=['0.5', '1.5', '2.5', '3.5', '4.5', '5.5'],
+                        y=[over_under.get(f'Under {l}', 0)*100 for l in ['0.5', '1.5', '2.5', '3.5', '4.5', '5.5']],
+                        name='Under',
+                        marker_color='#3498db'
+                    ))
+                    fig_ou.update_layout(
+                        title="Probabilità Over/Under per livello",
+                        xaxis_title="Total",
+                        yaxis_title="Probabilità (%)",
+                        barmode='group'
+                    )
+                    st.plotly_chart(fig_ou, use_container_width=True)
+
+                    st.markdown("---")
+
+                    # GG/NG
                     col1, col2 = st.columns(2)
-
                     with col1:
-                        st.markdown(f"**Over/Under 2.5** - Confidence: {conf_ou:.0%} {get_confidence_stars(conf_ou)}")
-                        st.metric("Over 2.5", f"{over_under['Over 2.5']*100:.1f}%")
-                        st.metric("Under 2.5", f"{over_under['Under 2.5']*100:.1f}%")
-
-                    with col2:
-                        st.markdown(f"**Goal/No Goal** - Confidence: {conf_gg:.0%} {get_confidence_stars(conf_gg)}")
-                        st.metric("GG", f"{gg_ng['GG']*100:.1f}%")
-                        st.metric("NG", f"{gg_ng['NG']*100:.1f}%")
-
-                        if gg_ng['gg_already']:
+                        st.markdown(f"### ⚽ Goal/No Goal - Confidence: {conf_gg:.0%} {get_confidence_stars(conf_gg)}")
+                        st.metric("GG", f"{gg_ng.get('GG', 0)*100:.1f}%")
+                        st.metric("NG", f"{gg_ng.get('NG', 0)*100:.1f}%")
+                        if gg_ng.get('gg_already'):
                             st.success("✅ Entrambe hanno già segnato!")
 
+                    # Next Goal Timing
+                    with col2:
+                        st.markdown("### ⏱️ Prossimo Gol - Timing")
+                        timing = live_probs.get('next_goal_timing', {})
+                        if timing:
+                            st.metric("Gol atteso al minuto", f"{timing.get('expected_minute', 0):.0f}'")
+                            st.metric("Prob. gol prossimi 5'", f"{timing.get('prob_goal_next_5min', 0)*100:.1f}%")
+                            st.metric("Prob. gol prossimi 10'", f"{timing.get('prob_goal_next_10min', 0)*100:.1f}%")
+                            st.metric("Prob. gol prossimi 15'", f"{timing.get('prob_goal_next_15min', 0)*100:.1f}%")
+
                 with live_tab4:
+                    st.subheader("🎲 Handicap Asiatici Live")
+
+                    handicap = live_probs.get('handicap_asian', {})
+
+                    if handicap:
+                        col1, col2 = st.columns(2)
+
+                        with col1:
+                            st.markdown("### 🏠 Casa")
+                            st.metric("AH -1 Casa", f"{handicap.get('AH -1 Casa', 0)*100:.1f}%")
+                            st.metric("AH -0.5 Casa", f"{handicap.get('AH -0.5 Casa', 0)*100:.1f}%")
+                            st.metric("DNB Casa", f"{handicap.get('DNB Casa', 0)*100:.1f}%")
+
+                        with col2:
+                            st.markdown("### ✈️ Trasferta")
+                            st.metric("AH +1 Trasferta", f"{handicap.get('AH +1 Trasferta', 0)*100:.1f}%")
+                            st.metric("AH +0.5 Trasferta", f"{handicap.get('AH +0.5 Trasferta', 0)*100:.1f}%")
+                            st.metric("DNB Trasferta", f"{handicap.get('DNB Trasferta', 0)*100:.1f}%")
+
+                        # Tabella completa
+                        st.markdown("---")
+                        st.markdown("### 📊 Tabella Completa Handicap")
+
+                        ah_data = []
+                        for key, val in handicap.items():
+                            ah_data.append({
+                                'Mercato': key,
+                                'Probabilità': f"{val*100:.1f}%",
+                                'Quota Fair': f"{1/val:.2f}" if val > 0.01 else "N/A"
+                            })
+
+                        df_ah = pd.DataFrame(ah_data)
+                        st.dataframe(df_ah, use_container_width=True, hide_index=True)
+                    else:
+                        st.warning("⚠️ Handicap non disponibili")
+
+                with live_tab5:
+                    st.subheader("🎯 Risultati Esatti Live")
+
+                    exact_scores = live_probs.get('exact_scores', {})
+
+                    if exact_scores:
+                        st.markdown("### 🏆 Top 15 Risultati Più Probabili")
+
+                        # Tabella
+                        es_data = []
+                        for score, prob in exact_scores.items():
+                            es_data.append({
+                                'Risultato': score,
+                                'Probabilità': f"{prob*100:.2f}%",
+                                'Quota Fair': f"{1/prob:.2f}" if prob > 0.001 else "N/A"
+                            })
+
+                        df_es = pd.DataFrame(es_data)
+                        st.dataframe(df_es, use_container_width=True, hide_index=True)
+
+                        # Grafico a barre
+                        fig_es = go.Figure(data=[go.Bar(
+                            x=list(exact_scores.keys()),
+                            y=[v*100 for v in exact_scores.values()],
+                            marker_color='#9b59b6'
+                        )])
+                        fig_es.update_layout(
+                            title="Top 15 Risultati Esatti",
+                            xaxis_title="Risultato",
+                            yaxis_title="Probabilità (%)",
+                            xaxis_tickangle=-45
+                        )
+                        st.plotly_chart(fig_es, use_container_width=True)
+                    else:
+                        st.warning("⚠️ Risultati esatti non disponibili")
+
+                with live_tab6:
                     st.subheader("📈 Delta vs Pre-Match")
 
                     delta = live_probs.get('delta_vs_prematch')
@@ -1148,7 +1268,7 @@ with main_tab2:
                     else:
                         st.warning("⚠️ Nessun dato Pre-Match disponibile per confronto")
 
-                with live_tab5:
+                with live_tab7:
                     st.subheader("🔮 Proiezioni Future")
 
                     projections = live_probs.get('projections', {})
@@ -1209,7 +1329,7 @@ with main_tab2:
                     else:
                         st.warning("⚠️ Nessuna proiezione disponibile (partita quasi finita)")
 
-                with live_tab6:
+                with live_tab8:
                     st.subheader("💰 Professional Betting Metrics")
 
                     # Calcola betting metrics
@@ -1350,7 +1470,7 @@ with main_tab2:
                         import traceback
                         st.code(traceback.format_exc())
 
-                with live_tab7:
+                with live_tab9:
                     st.subheader("📊 Dettagli Tecnici & Analisi Professionale")
 
                     # ===== SEZIONE 1: MODELLO MATEMATICO =====
