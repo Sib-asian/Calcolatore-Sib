@@ -5,8 +5,13 @@ App Streamlit per calcolo avanzato di probabilità basato su spread e total
 
 import streamlit as st
 import pandas as pd
+import os
 from dotenv import load_dotenv
-load_dotenv()  # Load environment variables from .env file
+
+# Load .env with explicit path to avoid issues
+from pathlib import Path
+env_path = Path(__file__).parent / '.env'
+load_dotenv(dotenv_path=env_path)
 
 from probability_calculator import AdvancedProbabilityCalculator
 import plotly.graph_objects as go
@@ -900,16 +905,36 @@ with main_tab2:
                         live_stats_data = None
                         if use_live_stats and live_team_home and live_team_away:
                             try:
-                                api_client = get_api_football_client()
+                                api_key = os.getenv('API_FOOTBALL_KEY', '')
+                                api_client = APIFootballClient(api_key=api_key)
+
+                                # Fetch live fixtures first
+                                fixtures = api_client.search_live_fixtures()
+
+                                if len(fixtures) == 0:
+                                    st.warning("⚠️ Nessuna partita live al momento. L'API funziona ma non ci sono match in corso.")
+                                else:
+                                    st.info(f"📺 {len(fixtures)} partite live trovate:")
+                                    with st.expander("🔍 Mostra partite disponibili", expanded=True):
+                                        for f in fixtures:
+                                            h = f.get('teams', {}).get('home', {}).get('name', '?')
+                                            a = f.get('teams', {}).get('away', {}).get('name', '?')
+                                            league = f.get('league', {}).get('name', '?')
+                                            minute = f.get('fixture', {}).get('status', {}).get('elapsed', '?')
+                                            st.write(f"• **{h}** vs **{a}** ({league}) - Min {minute}'")
+
                                 with st.spinner("📊 Caricamento stats live..."):
                                     live_stats_result = api_client.get_live_stats(live_team_home, live_team_away)
                                     if live_stats_result.get('found') and live_stats_result.get('normalized'):
                                         live_stats_data = live_stats_result
                                         st.success(f"✅ Stats caricate: {live_stats_result.get('match_info', {}).get('home_team', '')} vs {live_stats_result.get('match_info', {}).get('away_team', '')}")
                                     elif live_stats_result.get('error'):
-                                        st.warning(f"⚠️ Stats non disponibili: {live_stats_result.get('error')}")
+                                        st.warning(f"⚠️ **{live_team_home} vs {live_team_away}** non trovata tra le partite live!")
+                                        st.info("💡 Verifica che la partita sia in corso e che i nomi siano corretti. Puoi usare i nomi esatti mostrati sopra.")
                             except Exception as api_err:
+                                import traceback
                                 st.warning(f"⚠️ Errore API stats: {str(api_err)}")
+                                st.code(traceback.format_exc())
 
                         # Calcola probabilità live
                         live_probs = ai_agent.calculate_live_probabilities(
