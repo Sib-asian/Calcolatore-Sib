@@ -17,7 +17,6 @@ from probability_calculator import AdvancedProbabilityCalculator
 import plotly.graph_objects as go
 import plotly.express as px
 from ai_agent_groq import AIAgentGroq
-from src.api.api_football import APIFootballClient, get_api_football_client
 
 # Configurazione pagina (mobile-friendly)
 st.set_page_config(
@@ -880,17 +879,6 @@ with main_tab2:
 
         st.markdown("---")
 
-        # Live Stats API (opzionale)
-        use_live_stats = st.checkbox(
-            "📊 Carica Stats Live (API-Football)",
-            value=False,
-            help="Carica statistiche live (tiri, possesso, corner) se la partita è in corso. Richiede nomi squadre.",
-            key="use_live_stats"
-        )
-
-        if use_live_stats and (not live_team_home or not live_team_away):
-            st.warning("⚠️ Inserisci i nomi delle squadre per caricare le stats live")
-
         # Bottone analisi
         analyze_live = st.button("⚡ Analizza Live", type="primary", use_container_width=True)
 
@@ -901,62 +889,15 @@ with main_tab2:
             else:
                 with st.spinner("🔄 Analisi live in corso..."):
                     try:
-                        # Fetch live stats if enabled
-                        live_stats_data = None
-                        if use_live_stats and live_team_home and live_team_away:
-                            try:
-                                api_key = os.getenv('API_FOOTBALL_KEY', '')
-                                api_client = APIFootballClient(api_key=api_key)
-
-                                # Check API status first
-                                api_status = api_client.check_api_status()
-                                if not api_status.get('active'):
-                                    error_msg = api_status.get('error', 'Unknown error')
-                                    st.error(f"❌ **API-Football non disponibile**: {error_msg}")
-                                    st.info("💡 Verifica il tuo account su https://dashboard.api-football.com")
-                                else:
-                                    st.success(f"✅ API attiva - Richieste: {api_status.get('requests_today', 0)}/{api_status.get('requests_limit', 100)}")
-
-                                    # Fetch live fixtures
-                                    fixtures = api_client.search_live_fixtures()
-
-                                    if len(fixtures) == 0:
-                                        st.warning("⚠️ Nessuna partita live al momento.")
-                                    else:
-                                        st.info(f"📺 {len(fixtures)} partite live trovate:")
-                                        with st.expander("🔍 Mostra partite disponibili", expanded=True):
-                                            for f in fixtures:
-                                                h = f.get('teams', {}).get('home', {}).get('name', '?')
-                                                a = f.get('teams', {}).get('away', {}).get('name', '?')
-                                                league = f.get('league', {}).get('name', '?')
-                                                minute = f.get('fixture', {}).get('status', {}).get('elapsed', '?')
-                                                st.write(f"• **{h}** vs **{a}** ({league}) - Min {minute}'")
-
-                                    with st.spinner("📊 Caricamento stats live..."):
-                                        live_stats_result = api_client.get_live_stats(live_team_home, live_team_away)
-                                        if live_stats_result.get('found') and live_stats_result.get('normalized'):
-                                            live_stats_data = live_stats_result
-                                            st.success(f"✅ Stats caricate: {live_stats_result.get('match_info', {}).get('home_team', '')} vs {live_stats_result.get('match_info', {}).get('away_team', '')}")
-                                        elif live_stats_result.get('error'):
-                                            st.warning(f"⚠️ **{live_team_home} vs {live_team_away}** non trovata tra le partite live!")
-                                            st.info("💡 Verifica che la partita sia in corso e usa i nomi esatti mostrati sopra.")
-                            except Exception as api_err:
-                                import traceback
-                                st.warning(f"⚠️ Errore API stats: {str(api_err)}")
-                                st.code(traceback.format_exc())
-
                         # Calcola probabilità live
                         live_probs = ai_agent.calculate_live_probabilities(
                             score_home=live_score_home,
                             score_away=live_score_away,
                             minute=live_minute,
                             lambda_home_base=lambda_home_base,
-                            lambda_away_base=lambda_away_base,
-                            live_stats=live_stats_data
+                            lambda_away_base=lambda_away_base
                         )
 
-                        # Salva anche live_stats_data in session state per display
-                        st.session_state['live_stats_data'] = live_stats_data
 
                         # Genera analisi AI
                         live_analysis = ai_agent.generate_live_betting_analysis(
@@ -1047,9 +988,9 @@ with main_tab2:
                 st.markdown("---")
 
                 # ===== TABS PER DATI DETTAGLIATI =====
-                live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6, live_tab7, live_tab8 = st.tabs([
+                live_tab1, live_tab2, live_tab3, live_tab4, live_tab5, live_tab6, live_tab7 = st.tabs([
                     "🎯 Next Goal", "🏆 Risultato Finale", "⚽ Over/Under & GG/NG",
-                    "📈 Delta Pre-Match", "🔮 Proiezioni", "💰 Betting Metrics", "📊 Dettagli Tecnici", "📊 Stats Live"
+                    "📈 Delta Pre-Match", "🔮 Proiezioni", "💰 Betting Metrics", "📊 Dettagli Tecnici"
                 ])
 
                 with live_tab1:
@@ -1566,132 +1507,6 @@ with main_tab2:
                     st.metric("Market Confidence", f"{market_analysis.get('confidence', 1.0):.3f}")
                     st.metric("Market Direction", market_analysis.get('direction', 'neutral').upper())
                     st.metric("Shift Magnitude", f"{market_analysis.get('shift_magnitude', 0.0):.3f}")
-
-                with live_tab8:
-                    st.subheader("📊 Statistiche Live (API-Football)")
-
-                    # Check if live stats are available
-                    live_stats_analysis = live_probs.get('live_stats_analysis')
-                    live_stats_raw = live_probs.get('live_stats_raw')
-
-                    if live_stats_analysis:
-                        st.success("✅ Statistiche live integrate nel calcolo!")
-
-                        # Stats advantage analysis
-                        st.markdown("### 📈 Analisi Vantaggio")
-
-                        col1, col2 = st.columns(2)
-
-                        with col1:
-                            combined_adv = live_stats_analysis.get('combined_advantage', 0.5)
-                            if live_stats_analysis.get('home_dominance'):
-                                st.success(f"🏠 **DOMINIO CASA** - Vantaggio: {combined_adv:.1%}")
-                            elif live_stats_analysis.get('away_dominance'):
-                                st.error(f"✈️ **DOMINIO TRASFERTA** - Vantaggio: {combined_adv:.1%}")
-                            else:
-                                st.info(f"⚖️ **PARTITA EQUILIBRATA** - Vantaggio: {combined_adv:.1%}")
-
-                        with col2:
-                            st.metric("Multiplier Casa", f"{live_stats_analysis.get('home_multiplier', 1.0):.3f}x")
-                            st.metric("Multiplier Trasferta", f"{live_stats_analysis.get('away_multiplier', 1.0):.3f}x")
-
-                        st.markdown("---")
-
-                        # Detailed ratios
-                        st.markdown("### 📊 Rapporti Statistici")
-
-                        ratio_data = [
-                            {"Statistica": "Tiri in Porta", "Ratio": f"{live_stats_analysis.get('shots_on_target_ratio', 0.5):.1%}", "Interpretazione": "Casa" if live_stats_analysis.get('shots_on_target_ratio', 0.5) > 0.5 else "Trasferta"},
-                            {"Statistica": "Attacchi Pericolosi", "Ratio": f"{live_stats_analysis.get('dangerous_attacks_ratio', 0.5):.1%}", "Interpretazione": "Casa" if live_stats_analysis.get('dangerous_attacks_ratio', 0.5) > 0.5 else "Trasferta"},
-                            {"Statistica": "Possesso", "Ratio": f"{live_stats_analysis.get('possession_ratio', 0.5):.1%}", "Interpretazione": "Casa" if live_stats_analysis.get('possession_ratio', 0.5) > 0.5 else "Trasferta"},
-                            {"Statistica": "Corner", "Ratio": f"{live_stats_analysis.get('corners_ratio', 0.5):.1%}", "Interpretazione": "Casa" if live_stats_analysis.get('corners_ratio', 0.5) > 0.5 else "Trasferta"},
-                        ]
-                        df_ratios = pd.DataFrame(ratio_data)
-                        st.dataframe(df_ratios, use_container_width=True, hide_index=True)
-
-                    if live_stats_raw:
-                        st.markdown("---")
-                        st.markdown("### 📋 Statistiche Grezze")
-
-                        col1, col2 = st.columns(2)
-
-                        with col1:
-                            st.markdown("**🏠 Casa:**")
-                            st.write(f"• Tiri totali: **{live_stats_raw.get('shots_total_home', 0)}**")
-                            st.write(f"• Tiri in porta: **{live_stats_raw.get('shots_on_target_home', 0)}**")
-                            st.write(f"• Possesso: **{live_stats_raw.get('possession_home', 50)}%**")
-                            st.write(f"• Corner: **{live_stats_raw.get('corners_home', 0)}**")
-                            st.write(f"• Attacchi pericolosi: **{live_stats_raw.get('dangerous_attacks_home', 0)}**")
-                            st.write(f"• Falli: **{live_stats_raw.get('fouls_home', 0)}**")
-                            st.write(f"• Cartellini gialli: **{live_stats_raw.get('yellow_cards_home', 0)}**")
-
-                        with col2:
-                            st.markdown("**✈️ Trasferta:**")
-                            st.write(f"• Tiri totali: **{live_stats_raw.get('shots_total_away', 0)}**")
-                            st.write(f"• Tiri in porta: **{live_stats_raw.get('shots_on_target_away', 0)}**")
-                            st.write(f"• Possesso: **{live_stats_raw.get('possession_away', 50)}%**")
-                            st.write(f"• Corner: **{live_stats_raw.get('corners_away', 0)}**")
-                            st.write(f"• Attacchi pericolosi: **{live_stats_raw.get('dangerous_attacks_away', 0)}**")
-                            st.write(f"• Falli: **{live_stats_raw.get('fouls_away', 0)}**")
-                            st.write(f"• Cartellini gialli: **{live_stats_raw.get('yellow_cards_away', 0)}**")
-
-                        # Comparison chart
-                        st.markdown("---")
-                        st.markdown("### 📊 Confronto Visuale")
-
-                        comparison_metrics = ['shots_on_target', 'possession', 'corners', 'dangerous_attacks']
-                        home_vals = [
-                            live_stats_raw.get('shots_on_target_home', 0),
-                            live_stats_raw.get('possession_home', 50),
-                            live_stats_raw.get('corners_home', 0) * 10,  # Scale corners
-                            live_stats_raw.get('dangerous_attacks_home', 0) / 2  # Scale attacks
-                        ]
-                        away_vals = [
-                            live_stats_raw.get('shots_on_target_away', 0),
-                            live_stats_raw.get('possession_away', 50),
-                            live_stats_raw.get('corners_away', 0) * 10,
-                            live_stats_raw.get('dangerous_attacks_away', 0) / 2
-                        ]
-
-                        fig_compare = go.Figure()
-                        fig_compare.add_trace(go.Bar(
-                            name='Casa',
-                            x=['Tiri in Porta', 'Possesso %', 'Corner (x10)', 'Att. Peric. (/2)'],
-                            y=home_vals,
-                            marker_color='#1f77b4'
-                        ))
-                        fig_compare.add_trace(go.Bar(
-                            name='Trasferta',
-                            x=['Tiri in Porta', 'Possesso %', 'Corner (x10)', 'Att. Peric. (/2)'],
-                            y=away_vals,
-                            marker_color='#2ca02c'
-                        ))
-                        fig_compare.update_layout(
-                            title="Confronto Statistiche",
-                            barmode='group',
-                            showlegend=True
-                        )
-                        st.plotly_chart(fig_compare, use_container_width=True)
-
-                    if not live_stats_analysis and not live_stats_raw:
-                        st.warning("""
-                        ⚠️ **Statistiche live non disponibili**
-
-                        Per caricare le statistiche live:
-                        1. Inserisci i nomi delle squadre
-                        2. Attiva "📊 Carica Stats Live (API-Football)"
-                        3. Clicca "⚡ Analizza Live"
-
-                        **Nota:** La partita deve essere in corso per avere stats disponibili.
-                        """)
-
-                        st.info("""
-                        **💡 Senza stats live, il modello usa:**
-                        - Spread/Total per calcolare λ base
-                        - Fase partita (9 fasi) per moltiplicatori
-                        - Score adjustment continuo
-                        - Market movement (se disponibile)
-                        """)
 
                 st.markdown("---")
 
