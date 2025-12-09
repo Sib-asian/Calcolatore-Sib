@@ -908,29 +908,38 @@ with main_tab2:
                                 api_key = os.getenv('API_FOOTBALL_KEY', '')
                                 api_client = APIFootballClient(api_key=api_key)
 
-                                # Fetch live fixtures first
-                                fixtures = api_client.search_live_fixtures()
-
-                                if len(fixtures) == 0:
-                                    st.warning("⚠️ Nessuna partita live al momento. L'API funziona ma non ci sono match in corso.")
+                                # Check API status first
+                                api_status = api_client.check_api_status()
+                                if not api_status.get('active'):
+                                    error_msg = api_status.get('error', 'Unknown error')
+                                    st.error(f"❌ **API-Football non disponibile**: {error_msg}")
+                                    st.info("💡 Verifica il tuo account su https://dashboard.api-football.com")
                                 else:
-                                    st.info(f"📺 {len(fixtures)} partite live trovate:")
-                                    with st.expander("🔍 Mostra partite disponibili", expanded=True):
-                                        for f in fixtures:
-                                            h = f.get('teams', {}).get('home', {}).get('name', '?')
-                                            a = f.get('teams', {}).get('away', {}).get('name', '?')
-                                            league = f.get('league', {}).get('name', '?')
-                                            minute = f.get('fixture', {}).get('status', {}).get('elapsed', '?')
-                                            st.write(f"• **{h}** vs **{a}** ({league}) - Min {minute}'")
+                                    st.success(f"✅ API attiva - Richieste: {api_status.get('requests_today', 0)}/{api_status.get('requests_limit', 100)}")
 
-                                with st.spinner("📊 Caricamento stats live..."):
-                                    live_stats_result = api_client.get_live_stats(live_team_home, live_team_away)
-                                    if live_stats_result.get('found') and live_stats_result.get('normalized'):
-                                        live_stats_data = live_stats_result
-                                        st.success(f"✅ Stats caricate: {live_stats_result.get('match_info', {}).get('home_team', '')} vs {live_stats_result.get('match_info', {}).get('away_team', '')}")
-                                    elif live_stats_result.get('error'):
-                                        st.warning(f"⚠️ **{live_team_home} vs {live_team_away}** non trovata tra le partite live!")
-                                        st.info("💡 Verifica che la partita sia in corso e che i nomi siano corretti. Puoi usare i nomi esatti mostrati sopra.")
+                                    # Fetch live fixtures
+                                    fixtures = api_client.search_live_fixtures()
+
+                                    if len(fixtures) == 0:
+                                        st.warning("⚠️ Nessuna partita live al momento.")
+                                    else:
+                                        st.info(f"📺 {len(fixtures)} partite live trovate:")
+                                        with st.expander("🔍 Mostra partite disponibili", expanded=True):
+                                            for f in fixtures:
+                                                h = f.get('teams', {}).get('home', {}).get('name', '?')
+                                                a = f.get('teams', {}).get('away', {}).get('name', '?')
+                                                league = f.get('league', {}).get('name', '?')
+                                                minute = f.get('fixture', {}).get('status', {}).get('elapsed', '?')
+                                                st.write(f"• **{h}** vs **{a}** ({league}) - Min {minute}'")
+
+                                    with st.spinner("📊 Caricamento stats live..."):
+                                        live_stats_result = api_client.get_live_stats(live_team_home, live_team_away)
+                                        if live_stats_result.get('found') and live_stats_result.get('normalized'):
+                                            live_stats_data = live_stats_result
+                                            st.success(f"✅ Stats caricate: {live_stats_result.get('match_info', {}).get('home_team', '')} vs {live_stats_result.get('match_info', {}).get('away_team', '')}")
+                                        elif live_stats_result.get('error'):
+                                            st.warning(f"⚠️ **{live_team_home} vs {live_team_away}** non trovata tra le partite live!")
+                                            st.info("💡 Verifica che la partita sia in corso e usa i nomi esatti mostrati sopra.")
                             except Exception as api_err:
                                 import traceback
                                 st.warning(f"⚠️ Errore API stats: {str(api_err)}")
