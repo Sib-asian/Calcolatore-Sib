@@ -1206,8 +1206,25 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
             prob_home_win = 0.0
             prob_draw = 0.0
             prob_away_win = 0.0
+
+            # Over/Under per tutti i livelli
+            prob_over_05 = 0.0
+            prob_over_15 = 0.0
             prob_over_25 = 0.0
-            prob_under_25 = 0.0
+            prob_over_35 = 0.0
+            prob_over_45 = 0.0
+            prob_over_55 = 0.0
+
+            # Handicap asiatici
+            prob_ah_home_minus1 = 0.0  # Casa -1
+            prob_ah_home_minus05 = 0.0  # Casa -0.5
+            prob_ah_home_0 = 0.0  # Draw no bet (Casa)
+            prob_ah_away_0 = 0.0  # Draw no bet (Away)
+            prob_ah_away_plus05 = 0.0  # Away +0.5
+            prob_ah_away_plus1 = 0.0  # Away +1
+
+            # Exact scores (top 15)
+            exact_scores = {}
 
             # Usa Dixon-Coles bivariate per ogni possibile outcome
             for home_remaining in range(max_goals_remaining + 1):
@@ -1221,6 +1238,8 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
 
                     final_home = score_home + home_remaining
                     final_away = score_away + away_remaining
+                    total_goals = final_home + final_away
+                    goal_diff = final_home - final_away
 
                     # 1X2
                     if final_home > final_away:
@@ -1230,24 +1249,72 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     else:
                         prob_away_win += prob_this_outcome
 
-                    # Over/Under 2.5
-                    total_goals = final_home + final_away
+                    # Over/Under tutti i livelli
+                    if total_goals > 0.5:
+                        prob_over_05 += prob_this_outcome
+                    if total_goals > 1.5:
+                        prob_over_15 += prob_this_outcome
                     if total_goals > 2.5:
                         prob_over_25 += prob_this_outcome
-                    else:
-                        prob_under_25 += prob_this_outcome
+                    if total_goals > 3.5:
+                        prob_over_35 += prob_this_outcome
+                    if total_goals > 4.5:
+                        prob_over_45 += prob_this_outcome
+                    if total_goals > 5.5:
+                        prob_over_55 += prob_this_outcome
 
-            # Normalizza
+                    # Handicap Asiatici
+                    if goal_diff > 1:  # Casa -1 vince
+                        prob_ah_home_minus1 += prob_this_outcome
+                    if goal_diff > 0.5:  # Casa -0.5 vince
+                        prob_ah_home_minus05 += prob_this_outcome
+                    if goal_diff > 0:  # DNB Casa vince
+                        prob_ah_home_0 += prob_this_outcome
+                    if goal_diff < 0:  # DNB Away vince
+                        prob_ah_away_0 += prob_this_outcome
+                    if goal_diff < 0.5:  # Away +0.5 vince (pareggio o away win)
+                        prob_ah_away_plus05 += prob_this_outcome
+                    if goal_diff < 1:  # Away +1 vince (pareggio, away win, o home win by 1)
+                        prob_ah_away_plus1 += prob_this_outcome
+
+                    # Exact scores
+                    score_key = f"{final_home}-{final_away}"
+                    exact_scores[score_key] = exact_scores.get(score_key, 0) + prob_this_outcome
+
+            # Normalizza 1X2
             total_1x2 = prob_home_win + prob_draw + prob_away_win
             if total_1x2 > 0:
                 prob_home_win /= total_1x2
                 prob_draw /= total_1x2
                 prob_away_win /= total_1x2
 
-            total_ou = prob_over_25 + prob_under_25
-            if total_ou > 0:
-                prob_over_25 /= total_ou
-                prob_under_25 /= total_ou
+            # Under probabilities (complementary)
+            prob_under_05 = 1.0 - prob_over_05
+            prob_under_15 = 1.0 - prob_over_15
+            prob_under_25 = 1.0 - prob_over_25
+            prob_under_35 = 1.0 - prob_over_35
+            prob_under_45 = 1.0 - prob_over_45
+            prob_under_55 = 1.0 - prob_over_55
+
+            # Sort exact scores by probability and take top 15
+            exact_scores_sorted = dict(sorted(exact_scores.items(), key=lambda x: x[1], reverse=True)[:15])
+
+            # ===== 6b. NEXT GOAL TIME ESTIMATION =====
+            # Expected time to next goal based on total lambda remaining
+            if total_lambda_remaining > 0.01:
+                # Exponential distribution: E[T] = 1/λ, but scaled to match minutes
+                expected_goals_per_minute = total_lambda_remaining / minutes_remaining if minutes_remaining > 0 else 0
+                if expected_goals_per_minute > 0:
+                    expected_minutes_to_goal = min(minutes_remaining, 1.0 / expected_goals_per_minute)
+                else:
+                    expected_minutes_to_goal = minutes_remaining
+            else:
+                expected_minutes_to_goal = minutes_remaining
+
+            # Probability of goal in next 5, 10, 15 minutes
+            prob_goal_next_5 = 1.0 - exp(-total_lambda_remaining * min(5, minutes_remaining) / 90) if minutes_remaining > 0 else 0
+            prob_goal_next_10 = 1.0 - exp(-total_lambda_remaining * min(10, minutes_remaining) / 90) if minutes_remaining > 0 else 0
+            prob_goal_next_15 = 1.0 - exp(-total_lambda_remaining * min(15, minutes_remaining) / 90) if minutes_remaining > 0 else 0
 
             # GG/NG
             gg_already = score_home > 0 and score_away > 0
@@ -1451,16 +1518,49 @@ FORMATO: Usa markdown, emoji appropriati, sii conciso ma professionale. MAX 300 
                     }
                 },
 
-                # Over/Under with CI
+                # Over/Under with CI (tutti i livelli)
                 'over_under': {
+                    'Over 0.5': round(prob_over_05, 3),
+                    'Under 0.5': round(prob_under_05, 3),
+                    'Over 1.5': round(prob_over_15, 3),
+                    'Under 1.5': round(prob_under_15, 3),
                     'Over 2.5': round(prob_over_25, 3),
                     'Under 2.5': round(prob_under_25, 3),
+                    'Over 3.5': round(prob_over_35, 3),
+                    'Under 3.5': round(prob_under_35, 3),
+                    'Over 4.5': round(prob_over_45, 3),
+                    'Under 4.5': round(prob_under_45, 3),
+                    'Over 5.5': round(prob_over_55, 3),
+                    'Under 5.5': round(prob_under_55, 3),
                     'confidence': round(confidence_ou, 2),
-                    # ✅ NEW: Confidence intervals
                     'bayesian_ci': {
                         'Over 2.5': ci_over_25,
                         'Under 2.5': ci_under_25
                     }
+                },
+
+                # ✅ NEW: Handicap Asiatici Live
+                'handicap_asian': {
+                    'AH -1 Casa': round(prob_ah_home_minus1, 3),
+                    'AH -1 Trasferta': round(1.0 - prob_ah_home_minus1, 3),
+                    'AH -0.5 Casa': round(prob_ah_home_minus05, 3),
+                    'AH +0.5 Trasferta': round(prob_ah_away_plus05, 3),
+                    'DNB Casa': round(prob_ah_home_0, 3),
+                    'DNB Trasferta': round(prob_ah_away_0, 3),
+                    'AH +1 Trasferta': round(prob_ah_away_plus1, 3),
+                    'AH -1 Trasferta': round(1.0 - prob_ah_away_plus1, 3),
+                },
+
+                # ✅ NEW: Exact Scores (Top 15)
+                'exact_scores': {k: round(v, 4) for k, v in exact_scores_sorted.items()},
+
+                # ✅ NEW: Next Goal Timing
+                'next_goal_timing': {
+                    'expected_minutes': round(expected_minutes_to_goal, 1),
+                    'expected_minute': round(minute + expected_minutes_to_goal, 0),
+                    'prob_goal_next_5min': round(prob_goal_next_5, 3),
+                    'prob_goal_next_10min': round(prob_goal_next_10, 3),
+                    'prob_goal_next_15min': round(prob_goal_next_15, 3),
                 },
 
                 # GG/NG with CI
